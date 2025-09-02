@@ -17,15 +17,24 @@ export interface InventoryTransaction {
   relatedInvoiceId?: string;
 }
 
+export interface Supplier {
+  supplierId: string;
+  supplierName: string;
+  phoneNumber: string;
+  contactPerson: string;
+}
+
 export interface PurchaseOrder {
   poId: string;
   relatedInvoiceId: string;
   productId: string;
+  quantity: string | number;  // ← Allow both string and number
   supplierName: string;
-  supplierPhone: string;
+  supplierPhone: string | number;  // ← Allow both string and number
   purchasePrice: number;
   sellingPrice: number;
-  paymentStatusToSupplier: 'UNPAID' | 'PARTIAL' | 'PAID';
+  supplierInvoiceURL?: string;
+  paymentStatusToSupplier: 'Unpaid' | 'UNPAID' | 'PARTIAL' | 'PAID';  // ← Allow both cases
   paymentDetailsToSupplier?: PaymentDetails[];
 }
 

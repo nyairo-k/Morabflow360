@@ -221,31 +221,38 @@ const refreshRequisitionData = async () => {
 };
 
 const refreshInventoryData = async () => {
-    if (!currentUser) return;
-    console.log("Fetching all inventory data...");
-    // You can set isLoading here if needed, but the main useEffect handles it.
+  if (!currentUser) return;
+  console.log("Fetching all inventory data...");
 
-    // !! IMPORTANT !! This will be the URL of your NEW, dedicated Inventory Apps Script
-    const INV_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxXzLPpbTj4SI1fAyuC86vSMPglgbelREePHLCFCsLI8OKNVcaU7YBwfNpABfg3swbbzw/exec"; 
+  const INV_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxXzLPpbTj4SI1fAyuC86vSMPglgbelREePHLCFCsLI8OKNVcaU7YBwfNpABfg3swbbzw/exec"; 
 
-    try {
-      const response = await fetch(INV_SCRIPT_URL);
-      const result = await response.json();
+  try {
+    const response = await fetch(INV_SCRIPT_URL);
+    const result = await response.json();
+    
+    console.log("Raw Apps Script response:", result);
+    
+    if (result.status === "success") {
+      // FIX: Access data directly from result object
+      const products = result.products || [];
+      const suppliers = result.suppliers || [];
+      const purchaseOrders = result.purchaseOrders || [];
+      const dispatchOrders = result.dispatchOrders || [];
       
-      if (result.status === "success") {
-        // Deconstruct the data from the script's response
-        const { products, suppliers, purchaseOrders } = result.data;
-        setProducts(products || []);
-        setSuppliers(suppliers || []);
-        setPurchaseOrders(purchaseOrders || []);
-        setDispatchOrders(dispatchOrders || []);
-      } else {
-        toast.error("Failed to load inventory data: " + result.message);
-      }
-    } catch (error) {
-      toast.error("Network error while loading inventory data.");
+      console.log("Extracted data:", { products, suppliers, purchaseOrders, dispatchOrders });
+      
+      setProducts(products);
+      setSuppliers(suppliers);
+      setPurchaseOrders(purchaseOrders);
+      setDispatchOrders(dispatchOrders);
+    } else {
+      toast.error("Failed to load inventory data: " + result.message);
     }
-  };
+  } catch (error) {
+    console.error("Full error details:", error);
+    toast.error("Network error while loading inventory data.");
+  }
+};
 
   // --- ADDITION: Effect to fetch clients ONCE after login ---
   useEffect(() => {
@@ -459,30 +466,37 @@ useEffect(() => {
   if (currentUser.forcePasswordChange) { return <ChangePasswordScreen username={currentUser.name} onPasswordChanged={handlePasswordChanged} />; }
 
 const handleInventoryAction = (action: string, data: any) => {
-    const INV_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxCMARGZN9qJvu1TqOsjQaXgxbm4CYjNPd6DE-hKbLWClPKqWvqJRQNFMoLfemYWu3hlQ/exec";
-    const payload = { action, data };
-
-    const promise = fetch(INV_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    }).then(res => res.json());
-
-    toast.promise(promise, {
-      loading: 'Processing inventory action...',
-      success: (result) => {
-        if (result.status === 'success') {
-          // Refresh both inventory and invoice data on success, as they are linked
-          refreshInventoryData();
-          refreshInvoiceData();
-          return result.message || 'Action completed successfully!';
-        } else {
-          throw new Error(result.message);
-        }
-      },
-      error: (err) => `Inventory Action Failed: ${err.message}`
-    });
+  // Use the CORRECT Inventory Apps Script URL from your script
+  const INV_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxXzLPpbTj4SI1fAyuC86vSMPglgbelREePHLCFCsLI8OKNVcaU7YBwfNpABfg3swbbzw/exec";
+  
+  const payload = { 
+    action, 
+    data,
+    timestamp: new Date().toISOString(),
+    user: currentUser.name
   };
+
+  const promise = fetch(INV_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  }).then(res => res.json());
+
+  toast.promise(promise, {
+    loading: 'Processing inventory action...',
+    success: (result) => {
+      if (result.status === 'success') {
+        // Refresh both inventory and invoice data on success
+        refreshInventoryData();
+        refreshInvoiceData();
+        return result.message || 'Action completed successfully!';
+      } else {
+        throw new Error(result.message);
+      }
+    },
+    error: (err) => `Inventory Action Failed: ${err.message}`
+  });
+};
 
 
 
@@ -584,7 +598,7 @@ const renderContent = () => {
   return (
     <FulfillmentCenter 
       currentUser={currentUser}
-      invoices={invoicesForFulfillment} // <-- This is the new, correctly formatted data
+      invoices={invoicesForFulfillment}
       suppliers={suppliers}
       fieldReps={fieldReps}
       purchaseOrders={purchaseOrders}
@@ -605,7 +619,7 @@ const renderContent = () => {
   return (
     <FulfillmentCenter 
       currentUser={currentUser}
-      invoices={invoicesForFulfillment} // <-- This is the new, correctly formatted data
+      invoices={invoicesForFulfillment}
       suppliers={suppliers}
       fieldReps={fieldReps}
       purchaseOrders={purchaseOrders}

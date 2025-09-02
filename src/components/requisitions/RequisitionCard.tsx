@@ -78,33 +78,32 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
     // SCENARIO 2: The user DID select a file.
     // We will upload the file first, then update the sheet.
     
-    // 1. Prepare the file to send to the Node.js backend
+    // 1) Prepare form data
     const formData = new FormData();
     formData.append("receiptFile", receiptFile);
     formData.append("requisitionId", requisition.id);
 
-    const backendUrl = "http://localhost:4000/upload-receipt";
+    // 2) Call Node server (robust parse to avoid '<!DOCTYPE' JSON crash)
+    const backendUrl = "http://localhost:4000/upload-requisition-receipt";
 
-    // 2. Use toast.promise to handle the entire async flow
-    const promise = fetch(backendUrl, {
-      method: "POST",
-      body: formData,
-    })
-    .then(res => {
-      // Handle server errors
-      if (!res.ok) {
-        return res.json().then(err => { throw new Error(err.message || "Receipt upload failed") });
-      }
-      return res.json();
-    })
-    .then(data => {
-      return onAction('receive', {
-        requisitionId: requisition.id,
-        receivedBy: receivedByName,
-        receivedItemsNotes: receivedItemsNotes,
-        receiptUrl: data.url, // Send the new public URL to the Apps Script
+    const promise = fetch(backendUrl, { method: "POST", body: formData })
+      .then(async (res) => {
+        const text = await res.text();
+        if (!res.ok) {
+          throw new Error(text || "Receipt upload failed");
+        }
+        let data;
+        try { data = JSON.parse(text); } catch { throw new Error("Server did not return JSON"); }
+        return data;
+      })
+      .then((data) => {
+        return onAction('receive', {
+          requisitionId: requisition.id,
+          receivedBy: receivedByName,
+          receivedItemsNotes: receivedItemsNotes,
+          receiptUrl: data.url,
+        });
       });
-    });
 
     toast.promise(promise, {
       loading: 'Uploading receipt and finalizing requisition...',

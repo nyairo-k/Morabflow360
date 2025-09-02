@@ -60,23 +60,34 @@ export function InvoiceAssignmentDialog({
 
   // ====== 3. REFECTOR THE SUBMISSION HANDLER ======
   const handleSubmit = () => {
-    // 1. Package up the entire fulfillment plan into a single data object.
+    // Create a unified fulfillment plan data structure
     const fulfillmentPlanData = {
+      action: 'submitFulfillmentPlan',
       invoiceId: invoice.invoiceId,
       assignedBy: currentUser.name,
-      // The lineItems array contains the complete, user-edited plan
+      assignedDate: new Date().toISOString(),
       lineItems: lineItems.map(item => ({
-        productId: item.serialNumbers ? item.serialNumbers[0] : item.productId,
+        productId: item.productId,
         quantityToDispatch: item.quantity,
-        sourceDetails: item.fulfillmentSource === 'OUTSOURCE' ? item.poId : getSourceLabel(item.fulfillmentSource),
+        fulfillmentSource: item.fulfillmentSource,
+        // FIX: Map source details correctly based on fulfillment source
+        sourceDetails: item.fulfillmentSource === 'OUTSOURCE' ? 'Outsource' :
+                      item.fulfillmentSource === 'MAIN_HQ' ? 'Main HQ Store' :
+                      item.fulfillmentSource === 'NYAMIRA' ? 'Nyamira Store' :
+                      item.fulfillmentSource === 'FIELD_REP' ? 'Field Rep Stock' : '',
+        // FIX: Sales Rep should only be populated for FIELD_REP items
         salesRep: item.fulfillmentSource === 'FIELD_REP' ? item.assignedRep : '',
+        // Add other necessary fields
+        serialNumbers: item.serialNumbers || [],
+        assignedLocation: item.assignedLocation || '',
+        poId: item.poId || ''
       }))
     };
     
-    // 2. Call the master onAction handler with ONE single, powerful command.
+    // Send the unified command
     onAction('submitFulfillmentPlan', fulfillmentPlanData);
     
-    onClose(); // Close the dialog after submitting
+    onClose();
   };
 
 

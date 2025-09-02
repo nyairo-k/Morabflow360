@@ -5,7 +5,7 @@ import { Badge } from "@/components/Inventory/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/Inventory/components/ui/table";
 import { StatusBadge } from "./StatusBadge";
 import { PaymentDialog } from "./PaymentDialog";
-import { Building, Phone, DollarSign, Package, CreditCard } from "lucide-react";
+import { Building, Phone, DollarSign, Package, CreditCard, Eye, Calendar, Receipt, TrendingUp } from "lucide-react"; // Add TrendingUp for profit
 import type { PurchaseOrder } from "@/components/Inventory/types";
 import { User } from "@/types/requisition";
 
@@ -23,6 +23,7 @@ export function OutsourcedItemsHub({
 }: OutsourcedItemsHubProps) {
 
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+  const [showPaymentHistory, setShowPaymentHistory] = useState<string | null>(null); // Track which PO's history to show
 
   // Helper functions are modified to be robust for live data
   const getTotalPaid = (po: PurchaseOrder) => {
@@ -49,10 +50,60 @@ export function OutsourcedItemsHub({
     setSelectedPO(null); // Close the dialog
   };
 
+  // NEW: Function to parse payment details safely
+  const getPaymentHistory = (po: PurchaseOrder) => {
+    try {
+      if (po.paymentDetailsToSupplier) {
+        if (typeof po.paymentDetailsToSupplier === 'string') {
+          return JSON.parse(po.paymentDetailsToSupplier);
+        } else if (Array.isArray(po.paymentDetailsToSupplier)) {
+          return po.paymentDetailsToSupplier;
+        }
+      }
+      return [];
+    } catch (error) {
+      console.error('Error parsing payment details:', error);
+      return [];
+    }
+  };
+
+  // NEW: Function to format date
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return 'Invalid date';
+    }
+  };
+
+  // FIX: Better data validation that handles the actual data structure
+  const validPurchaseOrders = purchaseOrders.filter(po => 
+    po.poId && 
+    po.relatedInvoiceId && 
+    po.supplierName &&
+    po.purchasePrice !== undefined &&
+    po.sellingPrice !== undefined
+  );
+
+
+  // FIX: Handle payment status case variations
+  const getPaymentStatusVariant = (status: string) => {
+    const upperStatus = status.toUpperCase();
+    if (upperStatus === 'PAID') return 'success';
+    if (upperStatus === 'PARTIAL') return 'processing';
+    return 'secondary';
+  };
+  
   // Summary metrics now calculated from the live 'purchaseOrders' prop
-  const unpaidCount = purchaseOrders.filter(po => po.paymentStatusToSupplier === 'Unpaid').length;
-  const partialCount = purchaseOrders.filter(po => po.paymentStatusToSupplier === 'Partially Paid').length;
-  const paidCount = purchaseOrders.filter(po => po.paymentStatusToSupplier === 'Paid').length;
+  const unpaidCount = validPurchaseOrders.filter(po => po.paymentStatusToSupplier === 'UNPAID').length;
+  const partialCount = validPurchaseOrders.filter(po => po.paymentStatusToSupplier === 'PARTIAL').length;
+  const paidCount = validPurchaseOrders.filter(po => po.paymentStatusToSupplier === 'PAID').length;
 
   return (
     <div className="space-y-6">
@@ -71,7 +122,7 @@ export function OutsourcedItemsHub({
               <Package className="h-4 w-4 text-primary" />
               <div>
                 <p className="text-sm text-muted-foreground">Total POs</p>
-                <p className="text-2xl font-bold">{purchaseOrders.length}</p>
+                <p className="text-2xl font-bold">{validPurchaseOrders.length}</p>
               </div>
             </div>
           </CardContent>
@@ -101,108 +152,218 @@ export function OutsourcedItemsHub({
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-status-paid" />
+              <Building className="h-4 w-4 text-status-completed" />
               <div>
                 <p className="text-sm text-muted-foreground">Paid</p>
-                <p className="text-2xl font-bold text-status-paid">{paidCount}</p>
+                <p className="text-2xl font-bold text-status-completed">{paidCount}</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Purchase Orders</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>PO ID</TableHead>
-                <TableHead>Supplier</TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead>Purchase Price</TableHead>
-                <TableHead>Selling Price</TableHead>
-                <TableHead>Profit</TableHead>
-                <TableHead>Payment Status</TableHead>
-                <TableHead>Outstanding</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {/* The table now maps over the live 'purchaseOrders' prop */}
-              {purchaseOrders.map((po) => (
-                <TableRow key={po.poId}>
-                  <TableCell className="font-medium">{po.poId}</TableCell>
-                  <TableCell>
-                    <div>
-                      <div className="flex items-center gap-1">
-                        <Building className="h-3 w-3" />
-                        <span className="font-medium">{po.supplierName}</span>
+      {/* FIX: Show the actual purchase orders with improved UI design */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">Purchase Orders</h3>
+        {validPurchaseOrders.length === 0 ? (
+          <Card className="text-center py-8">
+            <CardContent>
+              <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">No purchase orders found.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="border rounded-lg bg-white">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50">
+                  <TableHead className="font-medium text-gray-700">PO ID</TableHead>
+                  <TableHead className="font-medium text-gray-700">Supplier</TableHead>
+                  <TableHead className="font-medium text-gray-700">Product</TableHead>
+                  <TableHead className="font-medium text-gray-700">Purchase Price</TableHead>
+                  <TableHead className="font-medium text-gray-700">Selling Price</TableHead>
+                  <TableHead className="font-medium text-gray-700">Profit</TableHead>
+                  <TableHead className="font-medium text-gray-700">Payment Status</TableHead>
+                  <TableHead className="font-medium text-gray-700">Outstanding</TableHead>
+                  <TableHead className="font-medium text-gray-700">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {validPurchaseOrders.map((po) => {
+                  const paymentHistory = getPaymentHistory(po);
+                  const hasPayments = paymentHistory.length > 0;
+                  const totalPaid = getTotalPaid(po);
+                  const outstanding = getOutstandingAmount(po);
+                  const profit = getProfitMargin(po);
+                  const profitPercent = getProfitPercentage(po);
+
+                  return (
+                    <TableRow key={po.poId} className="hover:bg-gray-50">
+                      <TableCell className="font-mono text-sm font-medium text-gray-900">
+                        {po.poId}
+                      </TableCell>
+                      
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Building className="h-4 w-4 text-gray-500" />
+                            <span className="font-medium text-gray-900">{po.supplierName}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <Phone className="h-3 w-3" />
+                            {po.supplierPhone}
+                          </div>
+                        </div>
+                      </TableCell>
+                      
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p className="font-medium text-gray-900">{po.productId || 'N/A'}</p>
+                          <p className="text-sm text-gray-600">Invoice: {po.relatedInvoiceId}</p>
+                        </div>
+                      </TableCell>
+                      
+                      <TableCell className="font-mono text-gray-900">
+                        KSh {Number(po.purchasePrice).toLocaleString()}
+                      </TableCell>
+                      
+                      <TableCell className="font-mono text-gray-900">
+                        KSh {Number(po.sellingPrice).toLocaleString()}
+                      </TableCell>
+                      
+                      <TableCell>
+                        <div className="text-right">
+                          <p className={`font-semibold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {profit >= 0 ? '+' : ''}KSh {profit.toLocaleString()}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            {profitPercent.toFixed(1)}%
+                          </p>
+                        </div>
+                      </TableCell>
+                      
+                      <TableCell>
+                        <Badge 
+                          variant={
+                            po.paymentStatusToSupplier === 'PAID' ? 'success' : 
+                            po.paymentStatusToSupplier === 'PARTIAL' ? 'processing' : 
+                            'secondary'
+                          }
+                          className={
+                            po.paymentStatusToSupplier === 'PAID' ? 'bg-green-100 text-green-800 border-green-200' :
+                            po.paymentStatusToSupplier === 'PARTIAL' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                            'bg-red-100 text-red-800 border-red-200'
+                          }
+                        >
+                          {po.paymentStatusToSupplier}
+                        </Badge>
+                      </TableCell>
+                      
+                      <TableCell>
+                        <p className={`font-semibold ${outstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          KSh {outstanding.toLocaleString()}
+                        </p>
+                      </TableCell>
+                      
+                      <TableCell>
+                        <div className="flex gap-2">
+                          {/* Payment History Button */}
+                          {hasPayments && (
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => setShowPaymentHistory(showPaymentHistory === po.poId ? null : po.poId)}
+                              className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                            >
+                              <Calendar className="h-4 w-4 mr-1" />
+                              History
+                            </Button>
+                          )}
+                          
+                          {/* Log Payment Button */}
+                          <Button 
+                            onClick={() => setSelectedPO(po)}
+                            variant="outline"
+                            disabled={po.paymentStatusToSupplier === 'PAID'}
+                            className="bg-gray-100 border-gray-300 text-gray-900 hover:bg-gray-200"
+                          >
+                            Log Payment
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+
+      {/* Payment History Section - Keep existing logic */}
+      {validPurchaseOrders.map((po) => {
+        const paymentHistory = getPaymentHistory(po);
+        const hasPayments = paymentHistory.length > 0;
+
+        return showPaymentHistory === po.poId && hasPayments ? (
+          <Card key={`history-${po.poId}`} className="mt-4">
+            <CardHeader>
+              <CardTitle className="text-lg">Payment History - {po.poId}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {paymentHistory.map((payment, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="h-4 w-4 text-green-600" />
+                        <span className="font-medium">
+                          KSh {Number(payment.amount).toLocaleString()}
+                        </span>
                       </div>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Phone className="h-3 w-3" />
-                        {po.supplierPhone}
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="h-4 w-4 text-blue-600" />
+                        <span className="font-mono text-sm">{payment.mpesaCode}</span>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-gray-600" />
+                        <span className="text-sm">{formatDate(payment.date)}</span>
+                      </div>
+                      {payment.loggedBy && (
+                        <span className="text-sm text-gray-600">
+                          by {payment.loggedBy}
+                        </span>
+                      )}
                     </div>
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <p className="font-medium">Product {po.productId}</p>
-                      <p className="text-xs text-muted-foreground">Invoice: {po.relatedInvoiceId}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell>KSh {Number(po.purchasePrice).toLocaleString()}</TableCell>
-                  <TableCell>KSh {Number(po.sellingPrice).toLocaleString()}</TableCell>
-                  <TableCell>
-                    <div>
-                      <p className="font-medium text-status-completed">
-                        +KSh {getProfitMargin(po).toLocaleString()}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {getProfitPercentage(po).toFixed(1)}%
-                      </p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge 
-                      status={po.paymentStatusToSupplier === 'Paid' ? 'paid' : 
-                             po.paymentStatusToSupplier === 'Partially Paid' ? 'processing' : 'unpaid'}
-                    >
-                      {po.paymentStatusToSupplier}
-                    </StatusBadge>
-                  </TableCell>
-                  <TableCell>
-                    <span className={getOutstandingAmount(po) > 0 ? 'text-status-unpaid font-medium' : 'text-muted-foreground'}>
-                      KSh {getOutstandingAmount(po).toLocaleString()}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {po.paymentStatusToSupplier !== 'Paid' && (
+                    
+                    {/* Receipt Preview Button */}
+                    {payment.receiptUrl && (
                       <Button
+                        variant="ghost"
                         size="sm"
-                        variant="outline"
-                        onClick={() => setSelectedPO(po)}
-                        className="text-xs"
+                        onClick={() => window.open(payment.receiptUrl, '_blank')}
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                       >
-                        Log Payment
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Receipt
                       </Button>
                     )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null;
+      })}
 
+      {/* Payment Dialog - Keep all original payment logic */}
       {selectedPO && (
         <PaymentDialog
           open={!!selectedPO}
           onClose={() => setSelectedPO(null)}
           purchaseOrder={selectedPO}
           onPaymentLogged={handlePaymentLogged}
+          currentUser={currentUser}
         />
       )}
     </div>

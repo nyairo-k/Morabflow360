@@ -39,18 +39,30 @@ const invoicesWithFulfillmentStatus = useMemo(() => {
       const relatedDispatchItems = dispatchOrders.filter(d => d.invoiceId === invoice.invoiceId);
       
       let fulfillmentStatus = 'AWAITING_FULFILLMENT'; // Default status
+      
       if (relatedDispatchItems.length > 0) {
-        // If ALL items are approved, the order is ready for the final dispatch
-        if (relatedDispatchItems.every(d => d.dispatchApprovalStatus === 'Approved')) {
-          fulfillmentStatus = 'READY_FOR_DISPATCH';
-        } 
         // If ANY item is still pending approval, the whole order is in that state
-        else if (relatedDispatchItems.some(d => d.dispatchApprovalStatus === 'Pending Approval')) {
+        if (relatedDispatchItems.some(d => d.dispatchApprovalStatus === 'Pending Approval')) {
           fulfillmentStatus = 'PENDING_APPROVAL';
+        } 
+        // If ALL items are approved, the order is ready for dispatch
+        else if (relatedDispatchItems.every(d => d.dispatchApprovalStatus === 'Approved')) {
+          fulfillmentStatus = 'READY_FOR_DISPATCH';
+        }
+        // If ALL items are rejected, back to awaiting fulfillment
+        else if (relatedDispatchItems.every(d => d.dispatchApprovalStatus === 'Rejected')) {
+          fulfillmentStatus = 'AWAITING_FULFILLMENT';
         }
       }
       
-      // We return a new, enriched invoice object
+      // Debug logging
+      console.log(`Invoice ${invoice.invoiceId}:`, {
+        originalStatus: invoice.status,
+        calculatedStatus: fulfillmentStatus,
+        dispatchItems: relatedDispatchItems,
+        dispatchItemCount: relatedDispatchItems.length
+      });
+      
       return { ...invoice, fulfillmentStatus, dispatchItems: relatedDispatchItems };
     });
   }, [invoices, dispatchOrders]);
@@ -130,23 +142,25 @@ const handleDispatchReject = (invoiceId: string) => {
           </div>
         </div>
 
-        <Tabs value={activeTab} onValue-Change={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full max-w-[600px] grid-cols-3">
-            <TabsTrigger value="pending" className="flex items-center gap-2">
-              <Clock className="h-4 w-4" />
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="pending" className="cursor-pointer">
               Pending Orders
             </TabsTrigger>
-            <TabsTrigger value="outsourced" className="flex items-center gap-2">
-              <Package className="h-4 w-4" />
+            <TabsTrigger value="outsourced" className="cursor-pointer">
               Outsourced Items
             </TabsTrigger>
-            <TabsTrigger value="completed" className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4" />
+            <TabsTrigger value="completed" className="cursor-pointer">
               Completed
+            </TabsTrigger>
+            <TabsTrigger value="reports" className="cursor-pointer">
+              Reports
             </TabsTrigger>
           </TabsList>
 
+          {/* Make sure each TabsContent has the correct value */}
           <TabsContent value="pending" className="space-y-6">
+            {/* Your pending orders content */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {/* MODIFICATION: We now map over the new, intelligent data array */}
               {invoicesWithFulfillmentStatus
@@ -201,16 +215,20 @@ const handleDispatchReject = (invoiceId: string) => {
             )}
           </TabsContent>
 
-          <TabsContent value="outsourced">
-            {/* MODIFICATION: Pass the correct props */}
-            <OutsourcedItemsHub purchaseOrders={purchaseOrders} onAction={onAction} currentUser={currentUser} />
+          <TabsContent value="outsourced" className="space-y-6">
+            <OutsourcedItemsHub 
+              purchaseOrders={purchaseOrders} 
+              onAction={onAction} 
+              currentUser={currentUser} 
+            />
           </TabsContent>
 
-          <TabsContent value="completed">
+          <TabsContent value="completed" className="space-y-6">
+            {/* Your completed orders content */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                {/* MODIFICATION: We now filter by the new calculated status */}
                {invoicesWithFulfillmentStatus
-                .filter(inv => inv.fulfillmentStatus === 'DISPATCHED' || inv.fulfillmentStatus === 'COMPLETED')
+                .filter(inv => inv.fulfillmentStatus === 'READY_FOR_DISPATCH' || inv.fulfillmentStatus === 'DISPATCHED')
                 .map((invoice) => (
                   <Card key={invoice.invoiceId} className="opacity-70">
                     <CardHeader><CardTitle>{invoice.invoiceId}</CardTitle></CardHeader>
@@ -218,6 +236,10 @@ const handleDispatchReject = (invoiceId: string) => {
                   </Card>
               ))}
             </div>
+          </TabsContent>
+
+          <TabsContent value="reports" className="space-y-6">
+            {/* Your reports content */}
           </TabsContent>
         </Tabs>
 

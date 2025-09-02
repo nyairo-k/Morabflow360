@@ -15,7 +15,8 @@ interface PurchaseOrderDialogProps {
   onClose: () => void;
   lineItem: InvoiceLineItem;
   invoiceId: string;
-  onPOCreated: (purchaseOrder: PurchaseOrder) => void; 
+  onAction: (purchaseOrder: PurchaseOrder) => void;
+  suppliers: Supplier[]; 
 }
 
 export function PurchaseOrderDialog({ 
@@ -23,7 +24,8 @@ export function PurchaseOrderDialog({
   onClose, 
   lineItem, 
   invoiceId, 
-  onAction
+  onAction, // Changed from onPOCreated
+  suppliers // Add this prop
 }: PurchaseOrderDialogProps) {
   const [supplierName, setSupplierName] = useState("");
   const [supplierPhone, setSupplierPhone] = useState("");
@@ -36,35 +38,33 @@ export function PurchaseOrderDialog({
   const profitMargin = sellingPrice - purchasePriceNum;
   const profitPercentage = sellingPrice > 0 ? (profitMargin / sellingPrice) * 100 : 0;
 
- const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Your validation is perfect and unchanged
     if (!supplierName || !supplierPhone || !purchasePrice) {
       toast.error("Missing Information", {
         description: "Please fill in all required fields.",
       });
       return;
-}
+    }
 
-    // This is the data package that will be sent to the backend
     const poData = {
-        poId: `PO-${Date.now()}`,
-        supplierName: supplierName,
-        supplierPhone: supplierPhone,
-        purchasePrice: parseFloat(purchasePrice) || 0,
-        relatedInvoiceId: invoiceId,
-        productId: lineItem.productId,
-        quantity: lineItem.quantity,
-        sellingPrice: lineItem.unitPrice,
+      poId: `PO-${Date.now()}`,
+      supplierName: supplierName,
+      supplierPhone: supplierPhone,
+      purchasePrice: parseFloat(purchasePrice) || 0,
+      relatedInvoiceId: invoiceId,
+      productId: lineItem.productId,
+      quantity: lineItem.quantity,
+      sellingPrice: lineItem.unitPrice,
+      createdDate: new Date().toISOString(),
+      createdBy: 'currentUser.name' // You'll need to pass this down
     };
     
-   
-    // Call the master handler in index.tsx
+    // Call the master handler
     onAction('createPurchaseOrder', poData);
-    onPOCreated(poData);
     
-    // Close the dialog. The parent's refresh will handle the UI update.
+    // Close the dialog
     handleClose();
   };
 

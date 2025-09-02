@@ -17,17 +17,65 @@ interface PaymentDialogProps {
   purchaseOrder: PurchaseOrder;
   // It now receives a handler that accepts the data and the file
   onPaymentLogged: (paymentData: any, receiptFile: File | null) => void;
+  currentUser: { name: string }; // Added currentUser prop
 }
 
-export function PaymentDialog({ open, onClose, purchaseOrder, onPaymentLogged }: PaymentDialogProps) {
-  // Your state management for the form is perfect and unchanged
+export function PaymentDialog({ 
+  open, 
+  onClose, 
+  purchaseOrder, 
+  onPaymentLogged, 
+  currentUser 
+}: PaymentDialogProps) {
+
   const [amountPaid, setAmountPaid] = useState("");
   const [mpesaCode, setMpesaCode] = useState("");
-  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const totalPaid = purchaseOrder.paymentDetailsToSupplier?.reduce((sum, payment) => sum + payment.amountPaid, 0) || 0;
-  const outstandingAmount = purchaseOrder.purchasePrice - totalPaid;
-  const amountPaidNum = parseFloat(amountPaid) || 0;
+  // FIX: Define amount at component level so it can be used in JSX
+  const amount = parseFloat(amountPaid) || 0;
+
+  // FIX: Replace the old .reduce calls with your new functions
+  const getTotalPaid = () => {
+    try {
+      // Handle different data types that might come from Google Sheets
+      let paymentDetails = [];
+      
+      if (purchaseOrder.paymentDetailsToSupplier) {
+        if (typeof purchaseOrder.paymentDetailsToSupplier === 'string') {
+          // If it's a JSON string, parse it
+          paymentDetails = JSON.parse(purchaseOrder.paymentDetailsToSupplier);
+        } else if (Array.isArray(purchaseOrder.paymentDetailsToSupplier)) {
+          // If it's already an array, use it directly
+          paymentDetails = purchaseOrder.paymentDetailsToSupplier;
+        }
+      }
+      
+      // Ensure paymentDetails is an array and has the right structure
+      if (!Array.isArray(paymentDetails)) {
+        paymentDetails = [];
+      }
+      
+      return paymentDetails.reduce((sum, payment) => {
+        const amount = typeof payment === 'object' ? payment.amount || payment.amountPaid : Number(payment) || 0;
+        return sum + Number(amount);
+      }, 0);
+    } catch (error) {
+      console.error('Error calculating total paid:', error);
+      return 0;
+    }
+  };
+
+  const getOutstandingAmount = () => {
+    const totalPaid = getTotalPaid();
+    const purchasePrice = Number(purchaseOrder.purchasePrice) || 0;
+    return Math.max(0, purchasePrice - totalPaid);
+  };
+
+  // FIX: Use the new functions instead of direct .reduce calls
+  const totalPaid = getTotalPaid();
+  const outstandingAmount = getOutstandingAmount();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -52,35 +100,93 @@ export function PaymentDialog({ open, onClose, purchaseOrder, onPaymentLogged }:
         return;
       }
       
-      setProofFile(file);
+      setReceiptFile(file);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // ADD THIS NEW FUNCTION: Handle file upload to server
+  const handleFileUpload = async (file: File): Promise<string> => {
+    try {
+      const formData = new FormData();
+      formData.append("receiptFile", file);
+      formData.append("poId", purchaseOrder.poId);
+      formData.append("invoiceId", purchaseOrder.relatedInvoiceId);
+
+      const response = await fetch("http://localhost:4000/upload-purchase-order-receipt", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("File upload failed");
+      }
+
+      const result = await response.json();
+      return result.url; // Return the public URL
+    } catch (error) {
+      console.error('File upload error:', error);
+      toast.error('Failed to upload receipt file');
+      throw error;
+    }
+  };
+
+  // UPDATE YOUR EXISTING handleSubmit FUNCTION:
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Your validation logic is excellent and unchanged
-    if (!amountPaid || !mpesaCode || amountPaidNum <= 0 || amountPaidNum > outstandingAmount) {
-      toast.error("Please fill in all fields correctly and check the amount.");
+    if (!amountPaid || !mpesaCode) {
+      toast.error("Please fill in all required fields");
       return;
     }
 
-    // This is the data package we send up to the parent
-    const paymentData = {
-      amountPaid: amountPaidNum,
-      mpesaCode: mpesaCode,
-    };
+    if (amount <= 0) {
+      toast.error("Amount must be greater than 0");
+      return;
+    }
 
-    // Call the master handler from OutsourcedItemsHub -> FulfillmentCenter -> index.tsx
-    onPaymentLogged(paymentData, proofFile);
-    
-    handleClose(); // Close the dialog
+    const outstanding = outstandingAmount;
+    if (amount > outstanding) {
+      toast.error(`Amount exceeds outstanding balance of KSh ${outstanding.toLocaleString()}`);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      let receiptUrl = '';
+      
+      // UPLOAD FILE FIRST if a receipt was selected
+      if (receiptFile) {
+        receiptUrl = await handleFileUpload(receiptFile);
+        console.log('Receipt uploaded successfully:', receiptUrl);
+      }
+
+      const paymentData = {
+        amountPaid: amount,
+        mpesaCode: mpesaCode,
+        paymentDate: new Date().toISOString(),
+        loggedBy: currentUser.name,
+        receiptUrl: receiptUrl // Include the receipt URL in payment data
+      };
+
+      // ADD THIS LOGGING:
+      console.log('Payment data being sent to onPaymentLogged:', paymentData);
+      console.log('Receipt file being sent:', receiptFile);
+
+      await onPaymentLogged(paymentData, receiptFile);
+      onClose();
+    } catch (error) {
+      console.error('Payment submission error:', error);
+      toast.error('Failed to log payment');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const resetForm = () => {
     setAmountPaid("");
     setMpesaCode("");
-    setProofFile(null);
+    setReceiptFile(null);
   };
 
   const handleClose = () => {
@@ -139,7 +245,7 @@ export function PaymentDialog({ open, onClose, purchaseOrder, onPaymentLogged }:
           </Card>
 
           {/* Payment History */}
-          {purchaseOrder.paymentDetailsToSupplier && purchaseOrder.paymentDetailsToSupplier.length > 0 && (
+          {purchaseOrder.paymentDetailsToSupplier && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Payment History</CardTitle>
@@ -155,13 +261,29 @@ export function PaymentDialog({ open, onClose, purchaseOrder, onPaymentLogged }:
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {purchaseOrder.paymentDetailsToSupplier.map((payment, index) => (
+                    {/* FIX: Use the same safe parsing function */}
+                    {(() => {
+                      try {
+                        let paymentDetails = [];
+                        if (purchaseOrder.paymentDetailsToSupplier) {
+                          if (typeof purchaseOrder.paymentDetailsToSupplier === 'string') {
+                            paymentDetails = JSON.parse(purchaseOrder.paymentDetailsToSupplier);
+                          } else if (Array.isArray(purchaseOrder.paymentDetailsToSupplier)) {
+                            paymentDetails = purchaseOrder.paymentDetailsToSupplier;
+                          }
+                        }
+                        return Array.isArray(paymentDetails) ? paymentDetails : [];
+                      } catch (error) {
+                        console.error('Error parsing payment details:', error);
+                        return [];
+                      }
+                    })().map((payment, index) => (
                       <TableRow key={index}>
-                        <TableCell>{payment.paymentDate}</TableCell>
-                        <TableCell>KSh {payment.amountPaid.toLocaleString()}</TableCell>
+                        <TableCell>{payment.paymentDate || payment.date}</TableCell>
+                        <TableCell>KSh {Number(payment.amountPaid || payment.amount).toLocaleString()}</TableCell>
                         <TableCell className="font-mono">{payment.mpesaCode}</TableCell>
                         <TableCell>
-                          {payment.proofOfPayment ? (
+                          {payment.proofOfPayment || payment.receiptUrl ? (
                             <Badge variant="secondary">
                               <Receipt className="h-3 w-3 mr-1" />
                               Uploaded
@@ -235,9 +357,9 @@ export function PaymentDialog({ open, onClose, purchaseOrder, onPaymentLogged }:
                       onChange={handleFileChange}
                       className="cursor-pointer"
                     />
-                    {proofFile && (
+                    {receiptFile && (
                       <Badge variant="secondary">
-                        {proofFile.name}
+                        {receiptFile.name}
                       </Badge>
                     )}
                   </div>
@@ -246,7 +368,7 @@ export function PaymentDialog({ open, onClose, purchaseOrder, onPaymentLogged }:
                   </p>
                 </div>
 
-                {amountPaidNum > 0 && (
+                {amount > 0 && (
                   <Card className="bg-muted/50">
                     <CardContent className="pt-4">
                       <div className="space-y-2">
@@ -254,14 +376,14 @@ export function PaymentDialog({ open, onClose, purchaseOrder, onPaymentLogged }:
                         <div className="grid grid-cols-2 gap-4 text-sm">
                           <div>
                             <p className="text-muted-foreground">New Payment</p>
-                            <p className="font-semibold">KSh {amountPaidNum.toLocaleString()}</p>
+                            <p className="font-semibold">KSh {amount.toLocaleString()}</p>
                           </div>
                           <div>
                             <p className="text-muted-foreground">Remaining Balance</p>
-                            <p className="font-semibold">KSh {(outstandingAmount - amountPaidNum).toLocaleString()}</p>
+                            <p className="font-semibold">KSh {(outstandingAmount - amount).toLocaleString()}</p>
                           </div>
                         </div>
-                        {(outstandingAmount - amountPaidNum) <= 0 && (
+                        {(outstandingAmount - amount) <= 0 && (
                           <Badge className="bg-status-completed text-status-completed-foreground">
                             This payment will mark the PO as PAID
                           </Badge>

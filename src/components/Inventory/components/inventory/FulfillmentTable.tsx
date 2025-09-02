@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/Inventory/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/Inventory/components/ui/select";
 import { Badge } from "@/components/Inventory/components/ui/badge";
 import { Input } from "@/components/Inventory/components/ui/input";
-import { Package, Building, User, ShoppingCart } from "lucide-react";
+import { Package, Building, User, ShoppingCart, Calendar, Eye } from "lucide-react";
 import { BulkAssignmentActions } from "./BulkAssignmentActions";
 import { PurchaseOrderDialog } from "./PurchaseOrderDialog";
 import type { InvoiceLineItem, FulfillmentSource, FieldRep, Supplier } from "@/components/Inventory/types";
@@ -73,14 +73,23 @@ export function FulfillmentTable({
 
   const handlePOCreated = (poData: any) => {
     if (selectedItemForPO) {
-      // Pass the create PO action and data up to the parent
+      // FIX: Update the local line item WITHOUT triggering a full refresh
+      onLineItemUpdate(selectedItemForPO.id, {
+        poId: poData.poId,
+        fulfillmentSource: 'OUTSOURCE'
+      });
+      
+      // FIX: Create the PO in the background without refreshing the UI
+      // This prevents losing other assignments
       onAction('createPurchaseOrder', {
         ...poData,
         relatedInvoiceId: invoiceId,
         productId: selectedItemForPO.productId,
-        sellingPrice: selectedItemForPO.unitPrice * selectedItemForPO.quantity
+        quantity: selectedItemForPO.quantity,        // ← THIS WAS MISSING!
+        sellingPrice: selectedItemForPO.unitPrice * selectedItemForPO.quantity,
+        createdDate: new Date().toISOString(),
+        createdBy: 'currentUser.name'
       });
-      // The parent (index.tsx) will handle the refresh, which will update the PO ID on the item
     }
     setPODialogOpen(false);
     setSelectedItemForPO(null);
@@ -202,23 +211,29 @@ export function FulfillmentTable({
           onClearSelection={() => setSelectedItems([])}
         />
 
-        <div className="border rounded-lg">
+        <div className="rounded-xl border bg-white shadow-sm">
+          <div className="px-4 py-3 border-b bg-gray-50/60 rounded-t-xl">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-gray-700">Fulfillment Assignment</p>
+              <div className="text-xs text-muted-foreground">Select source and provide assignment details</div>
+            </div>
+          </div>
           <Table>
             <TableHeader>
-              <TableRow>
+              <TableRow className="bg-gray-50/60">
                 <TableHead className="w-12">
                   <Checkbox
                     checked={selectedItems.length > 0 && selectedItems.length === lineItems.length}
                     onCheckedChange={handleSelectAll}
                   />
                 </TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead>Qty</TableHead>
-                <TableHead>Unit Price</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Assignment Details</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead className="font-medium text-gray-700">Product</TableHead>
+                <TableHead className="font-medium text-gray-700">Qty</TableHead>
+                <TableHead className="font-medium text-gray-700">Unit Price</TableHead>
+                <TableHead className="font-medium text-gray-700">Total</TableHead>
+                <TableHead className="font-medium text-gray-700">Source</TableHead>
+                <TableHead className="font-medium text-gray-700">Assignment Details</TableHead>
+                <TableHead className="font-medium text-gray-700 text-right">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -239,7 +254,7 @@ export function FulfillmentTable({
                 })();
 
                 return (
-                  <TableRow key={item.id}>
+                  <TableRow key={item.id} className="hover:bg-gray-50/60 transition-colors">
                     <TableCell>
                       <Checkbox
                         checked={selectedItems.includes(item.id)}
@@ -247,14 +262,14 @@ export function FulfillmentTable({
                       />
                     </TableCell>
                     <TableCell>
-                      <div>
-                        <p className="font-medium">{item.productName}</p>
-                        <p className="text-xs text-muted-foreground">{item.productId}</p>
+                      <div className="space-y-0.5">
+                        <p className="font-medium text-gray-900">{item.productName}</p>
+                        <p className="text-xs text-gray-500 font-mono">{item.productId}</p>
                       </div>
                     </TableCell>
-                    <TableCell className="font-mono">{item.quantity}</TableCell>
-                    <TableCell className="font-mono">KSh {item.unitPrice.toLocaleString()}</TableCell>
-                    <TableCell className="font-mono font-medium">
+                    <TableCell className="font-mono text-gray-900">{item.quantity}</TableCell>
+                    <TableCell className="font-mono text-gray-900">KSh {item.unitPrice.toLocaleString()}</TableCell>
+                    <TableCell className="font-mono font-semibold text-gray-900">
                       KSh {(item.quantity * item.unitPrice).toLocaleString()}
                     </TableCell>
                     <TableCell>
@@ -262,12 +277,12 @@ export function FulfillmentTable({
                         value={item.fulfillmentSource || ''}
                         onValueChange={(value: FulfillmentSource) => handleSourceChange(item.id, value)}
                       >
-                        <SelectTrigger className="w-[180px]">
+                        <SelectTrigger className="w-[200px] h-9">
                           <SelectValue>
                             {item.fulfillmentSource ? (
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 text-gray-900">
                                 {getSourceIcon(item.fulfillmentSource)}
-                                <span className="text-xs">{getSourceLabel(item.fulfillmentSource)}</span>
+                                <span className="text-xs font-medium">{getSourceLabel(item.fulfillmentSource)}</span>
                               </div>
                             ) : (
                               "Select source..."
@@ -276,37 +291,40 @@ export function FulfillmentTable({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="MAIN_HQ">
-                            <div className="flex items-center gap-2">
-                              <Building className="h-4 w-4" />
-                              Main HQ Store
+                            <div className="flex items-center gap-2 text-gray-900">
+                              <Building className="h-4 w-4 text-gray-700" />
+                              <span className="text-sm">Main HQ Store</span>
                             </div>
                           </SelectItem>
                           <SelectItem value="NYAMIRA">
-                            <div className="flex items-center gap-2">
-                              <Building className="h-4 w-4" />
-                              Nyamira Store
+                            <div className="flex items-center gap-2 text-gray-900">
+                              <Building className="h-4 w-4 text-gray-700" />
+                              <span className="text-sm">Nyamira Store</span>
                             </div>
                           </SelectItem>
                           <SelectItem value="FIELD_REP">
-                            <div className="flex items-center gap-2">
-                              <User className="h-4 w-4" />
-                              Field Rep Stock
+                            <div className="flex items-center gap-2 text-gray-900">
+                              <User className="h-4 w-4 text-gray-700" />
+                              <span className="text-sm">Field Rep Stock</span>
                             </div>
                           </SelectItem>
                           <SelectItem value="OUTSOURCE">
-                            <div className="flex items-center gap-2">
-                              <ShoppingCart className="h-4 w-4" />
-                              Outsource from Supplier
+                            <div className="flex items-center gap-2 text-gray-900">
+                              <ShoppingCart className="h-4 w-4 text-gray-700" />
+                              <span className="text-sm">Outsource from Supplier</span>
                             </div>
                           </SelectItem>
                         </SelectContent>
                       </Select>
                     </TableCell>
-                    <TableCell className="min-w-[200px]">
+                    <TableCell className="min-w-[220px]">
                       {renderAssignmentDetails(item)}
                     </TableCell>
-                    <TableCell>
-                      <Badge variant={isComplete ? "success" : "secondary"}>
+                    <TableCell className="text-right">
+                      <Badge
+                        variant={isComplete ? "success" : "secondary"}
+                        className={isComplete ? "bg-green-100 text-green-800 border-green-200" : "bg-amber-100 text-amber-800 border-amber-200"}
+                      >
                         {isComplete ? "Ready" : "Pending"}
                       </Badge>
                     </TableCell>

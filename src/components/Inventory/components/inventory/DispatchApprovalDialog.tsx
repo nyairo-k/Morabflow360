@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/Inventory/components/ui/dialog";
 import { Button } from "@/components/Inventory/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Inventory/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/Inventory/components/ui/table";
 import { Badge } from "@/components/Inventory/components/ui/badge";
+import { StatusBadge } from "./StatusBadge";
 import { Separator } from "@/components/Inventory/components/ui/separator";
 import { Building, User, ShoppingCart, CheckCircle, XCircle } from "lucide-react";
 import type { Invoice, InvoiceLineItem, FulfillmentSource } from "@/components/Inventory/types";
@@ -18,11 +20,14 @@ interface DispatchApprovalDialogProps {
 
 export function DispatchApprovalDialog({ 
   invoice, 
+  dispatchItems, 
   open, 
   onClose, 
-  onAction,
-  currentUser
+  onAction, 
+  currentUser 
 }: DispatchApprovalDialogProps) {
+
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const getSourceIcon = (source: FulfillmentSource) => {
     switch (source) {
@@ -129,98 +134,140 @@ export function DispatchApprovalDialog({
     onClose();
   };
 
+  const handleApproveAll = async () => {
+    setIsProcessing(true);
+    try {
+      // Get all dispatch item IDs that are pending approval
+      const pendingDispatchIds = dispatchItems
+        .filter(item => item.dispatchApprovalStatus === 'Pending Approval')
+        .map(item => item.dispatchItemId);
+
+      if (pendingDispatchIds.length === 0) {
+        // No pending items to approve
+        return;
+      }
+
+      // Call the master action handler to approve all items
+      await onAction('approveDispatch', {
+        invoiceId: invoice.invoiceId,
+        dispatchItemIds: pendingDispatchIds,
+        approvedBy: currentUser.name
+      });
+
+      onClose(); // Close the dialog after successful approval
+    } catch (error) {
+      console.error('Error approving dispatch:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRejectAll = async () => {
+    setIsProcessing(true);
+    try {
+      // Get all dispatch item IDs that are pending approval
+      const pendingDispatchIds = dispatchItems
+        .filter(item => item.dispatchApprovalStatus === 'Pending Approval')
+        .map(item => item.dispatchItemId);
+
+      if (pendingDispatchIds.length === 0) {
+        // No pending items to reject
+        return;
+      }
+
+      // Call the master action handler to reject all items
+      await onAction('rejectDispatch', {
+        invoiceId: invoice.invoiceId,
+        dispatchItemIds: pendingDispatchIds,
+        rejectedBy: currentUser.name
+      });
+
+      onClose(); // Close the dialog after successful rejection
+    } catch (error) {
+      console.error('Error rejecting dispatch:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <CheckCircle className="h-5 w-5 text-green-600" />
-            Dispatch Approval - {invoice.invoiceId}
-          </DialogTitle>
+          <DialogTitle>Dispatch Approval - {invoice.invoiceId}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Customer Information</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="font-medium">{invoice.customerName}</p>
-                      <p className="text-sm text-muted-foreground">{invoice.customerPhone}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Invoice Date</p>
-                      <p className="font-medium">{invoice.invoiceDate}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Order Summary</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Total Items:</span>
-                    <span className="font-medium">{invoice.lineItems.length}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Total Quantity:</span>
-                    <span className="font-medium">
-                      {invoice.lineItems.reduce((sum, item) => sum + item.quantity, 0)}
-                    </span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between font-medium">
-                    <span>Total Amount:</span>
-                    <span>KSh {invoice.totalAmount.toLocaleString()}</span>
-                  </div>
+          {/* Customer Information */}
+          <Card>
+            <CardHeader><CardTitle className="text-lg">Customer Information</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="font-medium">{invoice.customerName}</p>
+                  <p className="text-sm text-muted-foreground">{invoice.customerPhone}</p>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Invoice Date</p>
+                  <p className="font-medium">{invoice.invoiceDate}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
+          {/* Fulfillment Assignment Details */}
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Assigned Items for Dispatch</h3>
-            
+            <h3 className="text-lg font-semibold">Fulfillment Assignment Review</h3>
             <div className="border rounded-lg">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Product</TableHead>
-                    <TableHead>Qty</TableHead>
-                    <TableHead>Unit Price</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Fulfillment Assignment</TableHead>
+                    <TableHead>Quantity</TableHead>
+                    <TableHead>Fulfillment Source</TableHead>
+                    <TableHead>Source Details</TableHead>
+                    <TableHead>Assigned By</TableHead>
+                    <TableHead>Assignment Date</TableHead>
+                    <TableHead>Sales Rep</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {invoice.lineItems.map((item) => (
-                    <TableRow key={item.id}>
+                  {dispatchItems.map((item) => (
+                    <TableRow key={item.dispatchItemId}>
                       <TableCell>
                         <div>
-                          <p className="font-medium">{item.productName}</p>
-                          <p className="text-xs text-muted-foreground">{item.productId}</p>
+                          <p className="font-medium">{item.productId || 'N/A'}</p>
+                          <p className="text-xs text-muted-foreground">ID: {item.dispatchItemId}</p>
                         </div>
                       </TableCell>
-                      <TableCell className="font-mono">{item.quantity}</TableCell>
-                      <TableCell className="font-mono">KSh {item.unitPrice.toLocaleString()}</TableCell>
-                      <TableCell className="font-mono font-medium">
-                        KSh {(item.quantity * item.unitPrice).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="min-w-[200px]">
-                        {renderAssignmentSummary(item)}
+                      <TableCell className="text-center">{item.quantityToDispatch}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {item.sourceDetails === 'Main HQ Store' ? 'Main HQ' :
+                           item.sourceDetails === 'Nyamira Store' ? 'Nyamira' :
+                           item.sourceDetails === 'Field Rep Stock' ? 'Field Rep' :
+                           item.sourceDetails === 'Outsource' ? 'Outsource' :
+                           item.sourceDetails}
+                        </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="success">Ready to Dispatch</Badge>
+                        {item.sourceDetails === 'Field Rep Stock' ? 
+                          (item.salesRep || 'Not assigned') :
+                          item.sourceDetails
+                        }
+                      </TableCell>
+                      <TableCell>{item.assignedBy}</TableCell>
+                      <TableCell>
+                        {new Date(item.assignmentDate).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        {item.salesRep || 'N/A'}
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={item.dispatchApprovalStatus.toLowerCase()}>
+                          {item.dispatchApprovalStatus}
+                        </StatusBadge>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -229,27 +276,26 @@ export function DispatchApprovalDialog({
             </div>
           </div>
 
-          <div className="bg-muted/50 p-4 rounded-lg">
-            <p className="text-sm text-muted-foreground mb-2">
-              All items have been assigned fulfillment sources and are ready for dispatch. 
-              Review the assignments above and approve to move to dispatch queue.
-            </p>
-          </div>
-
-          <Separator />
-
-          <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={onClose}>
-              Close
-            </Button>
-            <Button variant="destructive" onClick={handleReject}>
-              <XCircle className="h-4 w-4 mr-2" />
-              Reject Assignment
-            </Button>
-            <Button onClick={handleApprove}>
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Approve for Dispatch
-            </Button>
+          {/* Approval Actions */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold">Dispatch Approval</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <Button 
+                onClick={handleApproveAll}
+                disabled={isProcessing}
+                className="w-full"
+              >
+                {isProcessing ? "Processing..." : "Approve All Items"}
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={handleRejectAll}
+                disabled={isProcessing}
+                className="w-full"
+              >
+                {isProcessing ? "Processing..." : "Reject All Items"}
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

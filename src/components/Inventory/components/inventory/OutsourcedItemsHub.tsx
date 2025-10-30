@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Inventory/components/ui/card";
 import { Button } from "@/components/Inventory/components/ui/button";
 import { Badge } from "@/components/Inventory/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/Inventory/components/ui/table";
 import { StatusBadge } from "./StatusBadge";
 import { PaymentDialog } from "./PaymentDialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle as UIDialogTitle } from "@/components/Inventory/components/ui/dialog";
 import { Building, Phone, DollarSign, Package, CreditCard, Eye, Calendar, Receipt, TrendingUp } from "lucide-react"; // Add TrendingUp for profit
 import type { PurchaseOrder } from "@/components/Inventory/types";
 import { User } from "@/types/requisition";
+import { usePagination } from "@/hooks/use-pagination";
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/Inventory/components/ui/pagination";
 
 // The props the component now receives from its parent
 interface OutsourcedItemsHubProps {
@@ -23,14 +26,12 @@ export function OutsourcedItemsHub({
 }: OutsourcedItemsHubProps) {
 
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
-  const [showPaymentHistory, setShowPaymentHistory] = useState<string | null>(null); // Track which PO's history to show
+  const [historyPO, setHistoryPO] = useState<PurchaseOrder | null>(null); // Modal for payment history
 
   // Helper functions are modified to be robust for live data
   const getTotalPaid = (po: PurchaseOrder) => {
-    const details = (typeof po.paymentDetailsToSupplier === 'string' && po.paymentDetailsToSupplier) 
-      ? JSON.parse(po.paymentDetailsToSupplier) 
-      : po.paymentDetailsToSupplier || [];
-    return details.reduce((sum, payment) => sum + Number(payment.amountPaid || 0), 0);
+    const paymentHistory = getPaymentHistory(po);
+    return paymentHistory.reduce((sum, payment) => sum + Number(payment.amount || payment.amountPaid || 0), 0);
   };
   const getOutstandingAmount = (po: PurchaseOrder) => Number(po.purchasePrice) - getTotalPaid(po);
   const getProfitMargin = (po: PurchaseOrder) => Number(po.sellingPrice) - Number(po.purchasePrice);
@@ -91,6 +92,16 @@ export function OutsourcedItemsHub({
     po.sellingPrice !== undefined
   );
 
+  console.log('=== DEBUGGING PURCHASE ORDERS ===');
+  console.log('Raw purchaseOrders from Google Sheets:', purchaseOrders);
+  validPurchaseOrders.forEach((po, index) => {
+    console.log(`PO ${index}:`, {
+      poId: po.poId,
+      paymentStatusToSupplier: po.paymentStatusToSupplier,
+      paymentDetailsToSupplier: po.paymentDetailsToSupplier,
+      allFields: po
+    });
+  });
 
   // FIX: Handle payment status case variations
   const getPaymentStatusVariant = (status: string) => {
@@ -163,6 +174,13 @@ export function OutsourcedItemsHub({
       </div>
 
       {/* FIX: Show the actual purchase orders with improved UI design */}
+      {(() => {
+        const { page, totalPages, setPage, slice } = usePagination({ totalItems: validPurchaseOrders.length, initialPage: 1, initialPageSize: 10 });
+        const paginatedPOs = useMemo(() => {
+          const [start, end] = slice;
+          return validPurchaseOrders.slice(start, end);
+        }, [validPurchaseOrders, slice]);
+        return (
       <div className="space-y-4">
         <h3 className="text-lg font-semibold">Purchase Orders</h3>
         {validPurchaseOrders.length === 0 ? (
@@ -189,7 +207,7 @@ export function OutsourcedItemsHub({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {validPurchaseOrders.map((po) => {
+                {paginatedPOs.map((po) => {
                   const paymentHistory = getPaymentHistory(po);
                   const hasPayments = paymentHistory.length > 0;
                   const totalPaid = getTotalPaid(po);
@@ -218,7 +236,7 @@ export function OutsourcedItemsHub({
                       
                       <TableCell>
                         <div className="space-y-1">
-                          <p className="font-medium text-gray-900">{po.productId || 'N/A'}</p>
+                          <p className="font-medium text-gray-900">{po.productName || 'N/A'}</p>
                           <p className="text-sm text-gray-600">Invoice: {po.relatedInvoiceId}</p>
                         </div>
                       </TableCell>
@@ -245,17 +263,17 @@ export function OutsourcedItemsHub({
                       <TableCell>
                         <Badge 
                           variant={
-                            po.paymentStatusToSupplier === 'PAID' ? 'success' : 
-                            po.paymentStatusToSupplier === 'PARTIAL' ? 'processing' : 
+                            (po.paymentStatusToSupplier || 'UNPAID') === 'PAID' ? 'success' : 
+                            (po.paymentStatusToSupplier || 'UNPAID') === 'PARTIAL' ? 'processing' : 
                             'secondary'
                           }
                           className={
-                            po.paymentStatusToSupplier === 'PAID' ? 'bg-green-100 text-green-800 border-green-200' :
-                            po.paymentStatusToSupplier === 'PARTIAL' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                            (po.paymentStatusToSupplier || 'UNPAID') === 'PAID' ? 'bg-green-100 text-green-800 border-green-200' :
+                            (po.paymentStatusToSupplier || 'UNPAID') === 'PARTIAL' ? 'bg-blue-100 text-blue-800 border-blue-200' :
                             'bg-red-100 text-red-800 border-red-200'
                           }
                         >
-                          {po.paymentStatusToSupplier}
+                          {po.paymentStatusToSupplier || 'UNPAID'}
                         </Badge>
                       </TableCell>
                       
@@ -272,7 +290,7 @@ export function OutsourcedItemsHub({
                             <Button 
                               variant="outline" 
                               size="sm"
-                              onClick={() => setShowPaymentHistory(showPaymentHistory === po.poId ? null : po.poId)}
+                              onClick={() => setHistoryPO(po)}
                               className="text-blue-600 border-blue-200 hover:bg-blue-50"
                             >
                               <Calendar className="h-4 w-4 mr-1" />
@@ -280,15 +298,17 @@ export function OutsourcedItemsHub({
                             </Button>
                           )}
                           
-                          {/* Log Payment Button */}
-                          <Button 
-                            onClick={() => setSelectedPO(po)}
-                            variant="outline"
-                            disabled={po.paymentStatusToSupplier === 'PAID'}
-                            className="bg-gray-100 border-gray-300 text-gray-900 hover:bg-gray-200"
-                          >
-                            Log Payment
-                          </Button>
+                          {/* Log Payment Button (hidden for InventoryStaff) */}
+                          {currentUser.role !== 'InventoryStaff' && (
+                            <Button 
+                              onClick={() => setSelectedPO(po)}
+                              variant="outline"
+                              disabled={po.paymentStatusToSupplier === 'PAID'}
+                              className="bg-gray-100 border-gray-300 text-gray-900 hover:bg-gray-200"
+                            >
+                              Log Payment
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -296,30 +316,48 @@ export function OutsourcedItemsHub({
                 })}
               </TableBody>
             </Table>
+            <div className="pt-4 p-4">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious href="#" onClick={(e) => { e.preventDefault(); setPage(Math.max(1, page - 1)); }} />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .slice(Math.max(0, page - 3), Math.max(0, page - 3) + 5)
+                    .map((n) => (
+                      <PaginationItem key={n}>
+                        <PaginationLink href="#" isActive={n === page} onClick={(e) => { e.preventDefault(); setPage(n); }}>{n}</PaginationLink>
+                      </PaginationItem>
+                    ))}
+                  <PaginationItem>
+                    <PaginationNext href="#" onClick={(e) => { e.preventDefault(); setPage(Math.min(totalPages, page + 1)); }} />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
           </div>
         )}
       </div>
+        );
+      })()}
 
-      {/* Payment History Section - Keep existing logic */}
-      {validPurchaseOrders.map((po) => {
-        const paymentHistory = getPaymentHistory(po);
-        const hasPayments = paymentHistory.length > 0;
-
-        return showPaymentHistory === po.poId && hasPayments ? (
-          <Card key={`history-${po.poId}`} className="mt-4">
-            <CardHeader>
-              <CardTitle className="text-lg">Payment History - {po.poId}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {paymentHistory.map((payment, index) => (
+      {/* Payment History Section - Modal */}
+      <Dialog open={!!historyPO} onOpenChange={(open) => !open && setHistoryPO(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <UIDialogTitle>Payment History{historyPO ? ` - ${historyPO.poId}` : ''}</UIDialogTitle>
+          </DialogHeader>
+          {historyPO && (() => {
+            const paymentHistory = getPaymentHistory(historyPO);
+            const hasPayments = paymentHistory.length > 0;
+            return hasPayments ? (
+              <div className="space-y-3 max-h-[70vh] overflow-y-auto p-1">
+                {paymentHistory.map((payment: any, index: number) => (
                   <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-2">
                         <DollarSign className="h-4 w-4 text-green-600" />
-                        <span className="font-medium">
-                          KSh {Number(payment.amount).toLocaleString()}
-                        </span>
+                        <span className="font-medium">KSh {Number(payment.amount || payment.amountPaid).toLocaleString()}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <CreditCard className="h-4 w-4 text-blue-600" />
@@ -327,37 +365,31 @@ export function OutsourcedItemsHub({
                       </div>
                       <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4 text-gray-600" />
-                        <span className="text-sm">{formatDate(payment.date)}</span>
+                        <span className="text-sm">{formatDate(payment.date || payment.paymentDate)}</span>
                       </div>
                       {payment.loggedBy && (
-                        <span className="text-sm text-gray-600">
-                          by {payment.loggedBy}
-                        </span>
+                        <span className="text-sm text-gray-600">by {payment.loggedBy}</span>
                       )}
                     </div>
-                    
-                    {/* Receipt Preview Button */}
                     {payment.receiptUrl && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => window.open(payment.receiptUrl, '_blank')}
-                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        View Receipt
+                      <Button asChild size="sm" variant="outline" className="text-xs">
+                        <a href={payment.receiptUrl} target="_blank" rel="noopener">
+                          <Receipt className="h-4 w-4 mr-1" /> View Receipt
+                        </a>
                       </Button>
                     )}
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        ) : null;
-      })}
+            ) : (
+              <div className="text-sm text-muted-foreground">No payments recorded yet.</div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
-      {/* Payment Dialog - Keep all original payment logic */}
-      {selectedPO && (
+      {/* Payment Dialog - hidden for InventoryStaff */}
+      {currentUser.role !== 'InventoryStaff' && selectedPO && (
         <PaymentDialog
           open={!!selectedPO}
           onClose={() => setSelectedPO(null)}

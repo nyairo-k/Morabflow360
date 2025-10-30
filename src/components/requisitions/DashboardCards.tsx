@@ -12,9 +12,9 @@ export function DashboardCards({ requisitions, currentUser }: DashboardCardsProp
 const getMetrics = () => {
     const pending = requisitions.filter(r => r.approvalStatus === 'Pending Approval').length;
     const approved = requisitions.filter(r => r.approvalStatus === 'Approved' && r.paymentStatus === 'Unpaid').length;
-    const paid = requisitions.filter(r => r.paymentStatus === 'Paid').length;
-    const awaitingReceipt = requisitions.filter(r => r.paymentStatus === 'Paid').length; // This is the same as 'Paid' for InventoryStaff to action
-    const completed = requisitions.filter(r => r.paymentStatus === 'Received').length;
+    const paid = requisitions.filter(r => r.paymentStatus === 'Paid' && r.receiptStatus !== 'Received').length;
+    const awaitingReceipt = requisitions.filter(r => r.paymentStatus === 'Paid' && r.receiptStatus !== 'Received').length; // This is the same as 'Paid' for InventoryStaff to action
+    const completed = requisitions.filter(r => r.receiptStatus === 'Received').length; // Fixed: check receiptStatus instead of paymentStatus
     const totalValue = requisitions.reduce((sum, r) => sum + Number(r.totalAmount || 0), 0);
 
     return { pending, approved, paid, awaitingReceipt, completed, totalValue };

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DollarSign, Edit, Save } from "lucide-react";
 import { toast } from "sonner";
+import { usePagination } from "@/hooks/use-pagination";
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 
 interface PaymentStatusProps {
   invoices: any[];
@@ -41,6 +43,11 @@ export function PaymentStatus({ invoices, onUpdatePaymentStatus }: PaymentStatus
   };
 
   const uploadedInvoices = invoices.filter(inv => inv.status === "Uploaded");
+  const { page, totalPages, setPage, slice } = usePagination({ totalItems: uploadedInvoices.length, initialPage: 1, initialPageSize: 10 });
+  const paginatedUploaded = useMemo(() => {
+    const [start, end] = slice;
+    return uploadedInvoices.slice(start, end);
+  }, [uploadedInvoices, slice]);
 
   return (
     <Card>
@@ -59,6 +66,7 @@ export function PaymentStatus({ invoices, onUpdatePaymentStatus }: PaymentStatus
             <p className="text-sm">Upload invoice PDFs to manage payment status</p>
           </div>
         ) : (
+          <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -72,7 +80,7 @@ export function PaymentStatus({ invoices, onUpdatePaymentStatus }: PaymentStatus
               </TableRow>
             </TableHeader>
             <TableBody>
-              {uploadedInvoices.map((invoice) => (
+              {paginatedUploaded.map((invoice) => (
                 <TableRow key={invoice.id}>
                   <TableCell className="font-medium">{invoice.id}</TableCell>
                   <TableCell>{invoice.clientName}</TableCell>
@@ -129,6 +137,28 @@ export function PaymentStatus({ invoices, onUpdatePaymentStatus }: PaymentStatus
               ))}
             </TableBody>
           </Table>
+          <div className="pt-4">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious href="#" onClick={(e) => { e.preventDefault(); setPage(Math.max(1, page - 1)); }} />
+                </PaginationItem>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .slice(Math.max(0, page - 3), Math.max(0, page - 3) + 5)
+                  .map((n) => (
+                    <PaginationItem key={n}>
+                      <PaginationLink href="#" isActive={n === page} onClick={(e) => { e.preventDefault(); setPage(n); }}>
+                        {n}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                <PaginationItem>
+                  <PaginationNext href="#" onClick={(e) => { e.preventDefault(); setPage(Math.min(totalPages, page + 1)); }} />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+          </>
         )}
       </CardContent>
     </Card>

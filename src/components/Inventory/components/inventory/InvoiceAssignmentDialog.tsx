@@ -5,13 +5,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/Inventory
 import { Separator } from "@/components/Inventory/components/ui/separator";
 import { FulfillmentTable } from "./FulfillmentTable";
 import { FulfillmentSummary } from "./FulfillmentSummary";
-import type { Invoice, InvoiceLineItem, Supplier } from "@/components/Inventory/types"; // Import Supplier
+import type { Invoice, InvoiceLineItem, Supplier, PurchaseOrder, FieldRep, FulfillmentSource } from "@/components/Inventory/types"; // Import Supplier
+import { User as UserType } from "@/types/requisition";
 
 // ====== 1. UPDATE THE PROPS INTERFACE ======
 interface InvoiceAssignmentDialogProps {
   invoice: Invoice;
   suppliers: Supplier[]; // It needs the list of suppliers for the outsourcing flow
-  currentUser: User;
+  purchaseOrders: PurchaseOrder[]; // Add this to access PO data
+  currentUser: UserType;
   fieldReps: FieldRep[];
   open: boolean;
   onClose: () => void;
@@ -21,6 +23,7 @@ interface InvoiceAssignmentDialogProps {
 export function InvoiceAssignmentDialog({ 
   invoice, 
   suppliers, 
+  purchaseOrders, // Add this
   currentUser, // <-- ADD THIS
   fieldReps = [],  // <-- ADD THIS (with a default value)
   open, 
@@ -41,7 +44,11 @@ export function InvoiceAssignmentDialog({
 
   // The logic to check if the plan is complete is still correct.
   const canSubmit = useMemo(() => {
-    return lineItems.every(item => {
+    console.log('=== DEBUGGING canSubmit ===');
+    console.log('lineItems:', lineItems);
+    
+    // Check if all items are complete (original logic)
+    const allComplete = lineItems.every(item => {
       if (!item.fulfillmentSource) return false;
       switch (item.fulfillmentSource) {
         case 'MAIN_HQ':
@@ -55,6 +62,18 @@ export function InvoiceAssignmentDialog({
           return false;
       }
     });
+  
+    // FIXED: Allow submission if at least one item is set to OUTSOURCE (even without PO yet)
+    const hasOutsourceItem = lineItems.some(item => 
+      item.fulfillmentSource === 'OUTSOURCE'
+    );
+  
+    console.log('allComplete:', allComplete);
+    console.log('hasOutsourceItem:', hasOutsourceItem);
+    console.log('Final canSubmit:', allComplete || hasOutsourceItem);
+
+    // Allow submission if either all items are complete OR at least one item is set to OUTSOURCE
+    return allComplete || hasOutsourceItem;
   }, [lineItems]);
 
 
@@ -142,9 +161,9 @@ export function InvoiceAssignmentDialog({
               lineItems={lineItems}
               invoiceId={invoice.invoiceId}
               onLineItemUpdate={updateLineItem}
-              // The table now needs the onAction handler for creating Purchase Orders
-              onAction={onAction} 
+              onAction={onAction}
               suppliers={suppliers}
+              purchaseOrders={purchaseOrders} // Add this
               fieldReps={fieldReps}
             />
           </div>

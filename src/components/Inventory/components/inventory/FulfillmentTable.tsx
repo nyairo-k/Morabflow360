@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/Inventory/components/ui/table";
 import { Button } from "@/components/Inventory/components/ui/button";
 import { Checkbox } from "@/components/Inventory/components/ui/checkbox";
@@ -8,8 +8,8 @@ import { Input } from "@/components/Inventory/components/ui/input";
 import { Package, Building, User, ShoppingCart, Calendar, Eye } from "lucide-react";
 import { BulkAssignmentActions } from "./BulkAssignmentActions";
 import { PurchaseOrderDialog } from "./PurchaseOrderDialog";
-import type { InvoiceLineItem, FulfillmentSource, FieldRep, Supplier } from "@/components/Inventory/types";
-
+import type { InvoiceLineItem, FulfillmentSource, FieldRep, Supplier, Invoice, PurchaseOrder } from "@/components/Inventory/types/inventory";
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationPrevious, PaginationNext } from "@/components/Inventory/components/ui/pagination";
 // ====== 1. UPDATE THE PROPS INTERFACE ======
 interface FulfillmentTableProps {
   lineItems: InvoiceLineItem[];
@@ -17,9 +17,9 @@ interface FulfillmentTableProps {
   onLineItemUpdate: (itemId: string, updates: Partial<InvoiceLineItem>) => void;
   onAction: (action: string, data: any) => void;
   suppliers: Supplier[];
+  purchaseOrders: PurchaseOrder[]; // Add this
   fieldReps: FieldRep[]; // It now receives the live list of field reps
 }
-
 
 export function FulfillmentTable({ 
   lineItems, 
@@ -27,11 +27,26 @@ export function FulfillmentTable({
   onLineItemUpdate,
   onAction,
   suppliers,
+  purchaseOrders, // Add this
   fieldReps = [] // Receive the new prop and default to an empty array
 }: FulfillmentTableProps) {
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [poDialogOpen, setPODialogOpen] = useState(false);
   const [selectedItemForPO, setSelectedItemForPO] = useState<InvoiceLineItem | null>(null);
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const pageSize = 20; // adjust if needed
+  const totalPages = Math.max(1, Math.ceil((lineItems?.length || 0) / pageSize));
+
+  const paginatedItems = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return (lineItems || []).slice(start, start + pageSize);
+  }, [lineItems, page, pageSize]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(1);
+  }, [totalPages, page]);
 
   const handleSelectItem = (itemId: string, checked: boolean) => {
     setSelectedItems(prev => 
@@ -71,13 +86,170 @@ export function FulfillmentTable({
     setPODialogOpen(true);
   };
 
+  // Lazy-load html2pdf.js from CDN once for client-side PDF generation
+  const ensureHtml2PdfLoaded = async (): Promise<void> => {
+    if (typeof window === 'undefined') return;
+    if ((window as any).html2pdf) return;
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load html2pdf.js'));
+      document.body.appendChild(script);
+    });
+  };
+
+  // Generate and download a PDF for an existing PO using html2pdf
+  const downloadPOPdf = async (poData: any) => {
+    try {
+      await ensureHtml2PdfLoaded();
+      const qty = Number(poData.quantity || 0);
+      const price = Number(poData.purchasePrice || 0);
+      const total = (qty * price).toLocaleString();
+
+      const container = document.createElement('div');
+      container.style.width = '210mm';
+      container.style.padding = '12mm';
+      container.style.background = '#fff';
+      container.style.color = '#000';
+      container.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ddd;padding-bottom:8px">
+          <div><h2 style="margin:0;font-family:ui-sans-serif,system-ui">Purchase Order</h2><small style="color:#666">Generated ${new Date().toLocaleString()}</small></div>
+          <img src="/logo.png" alt="Company" style="height:40px"/>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px">
+          <div>
+            <div><strong>PO No:</strong> ${poData.poId}</div>
+            <div><strong>Supplier:</strong> ${poData.supplierName || '-'}</div>
+            <div><strong>Phone:</strong> ${poData.supplierPhone || '-'}</div>
+          </div>
+          <div style="text-align:right">
+            <div><strong>Date:</strong> ${(poData.createdDate ? new Date(poData.createdDate) : new Date()).toLocaleDateString()}</div>
+            <div><strong>Invoice Ref:</strong> ${poData.relatedInvoiceId || '-'}</div>
+            <div><strong>Created By:</strong> ${poData.createdBy || '-'}</div>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin-top:12px;font-family:ui-sans-serif,system-ui">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">Product</th>
+              <th style="text-align:right;padding:6px;border-bottom:1px solid #eee">Qty</th>
+              <th style="text-align:right;padding:6px;border-bottom:1px solid #eee">Unit Cost</th>
+              <th style="text-align:right;padding:6px;border-bottom:1px solid #eee">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding:6px;border-bottom:1px solid #f2f2f2">${poData.productName || '-'}</td>
+              <td style="text-align:right;padding:6px;border-bottom:1px solid #f2f2f2">${qty}</td>
+              <td style="text-align:right;padding:6px;border-bottom:1px solid #f2f2f2">${price.toLocaleString()}</td>
+              <td style="text-align:right;padding:6px;border-bottom:1px solid #f2f2f2">${(qty * price).toLocaleString()}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" style="text-align:right;padding:6px"><strong>Total</strong></td>
+              <td style="text-align:right;padding:6px"><strong>${(qty * price).toLocaleString()}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
+          <div><div><strong>Authorized By</strong></div><div style="height:64px;border-bottom:1px solid #000"></div><small>Signature / Date</small></div>
+          <div><div><strong>Supplier Acceptance</strong></div><div style="height:64px;border-bottom:1px solid #000"></div><small>Signature / Date</small></div>
+        </div>
+      `;
+
+      const opt = {
+        margin:       0,
+        filename:     `${poData.poId || 'purchase_order'}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      } as any;
+
+      (window as any).html2pdf().set(opt).from(container).save();
+    } catch {
+      // Silent failure; avoids blocking fulfillment flow
+    }
+  };
+
+  // Build a lightweight printable HTML for an existing PO and open in new tab
+  const openPOPrintView = (poData: any) => {
+    try {
+      const qty = Number(poData.quantity || 0);
+      const price = Number(poData.purchasePrice || 0);
+      const total = (qty * price).toLocaleString();
+
+      const html = `<!doctype html><html><head><meta charset="utf-8"/><title>Purchase Order</title>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;}
+@page{size:A4;margin:12mm;} .wrap{width:210mm;min-height:297mm;padding:12mm;margin:0 auto;background:#fff;color:#000}
+.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ddd;padding-bottom:8px}
+small{color:#666} table{width:100%;border-collapse:collapse;margin-top:12px} th,td{padding:6px;border-bottom:1px solid #eee}
+th{text-align:left} td.num{text-align:right}
+.section{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+.sign{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:28px}
+.box{height:64px;border-bottom:1px solid #000}
+</style></head><body>
+<div class="wrap">
+  <div class="hdr"><div><h2>Purchase Order</h2><small>Generated ${new Date().toLocaleString()}</small></div><img src="/logo.png" alt="Company" style="height:40px"/></div>
+  <div class="section">
+    <div>
+      <div><strong>PO No:</strong> ${poData.poId}</div>
+      <div><strong>Supplier:</strong> ${poData.supplierName || '-'}</div>
+      <div><strong>Phone:</strong> ${poData.supplierPhone || '-'}</div>
+    </div>
+    <div style="text-align:right">
+      <div><strong>Date:</strong> ${(poData.createdDate ? new Date(poData.createdDate) : new Date()).toLocaleDateString()}</div>
+      <div><strong>Invoice Ref:</strong> ${poData.relatedInvoiceId || '-'}</div>
+      <div><strong>Created By:</strong> ${poData.createdBy || '-'}</div>
+    </div>
+  </div>
+  <table><thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Total</th></tr></thead>
+    <tbody><tr><td>${poData.productName || '-'}</td><td class="num">${qty}</td><td class="num">${price.toLocaleString()}</td><td class="num">${total}</td></tr></tbody>
+    <tfoot><tr><td colspan="3" style="text-align:right"><strong>Total</strong></td><td class="num"><strong>${total}</strong></td></tr></tfoot>
+  </table>
+  <div class="sign"><div><div><strong>Authorized By</strong></div><div class="box"></div><small>Signature / Date</small></div>
+       <div><div><strong>Supplier Acceptance</strong></div><div class="box"></div><small>Signature / Date</small></div></div>
+</div>
+<script>window.addEventListener('load',()=>{document.title='Purchase Order';});</script>
+</body></html>`;
+
+      const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+      window.open(blobUrl, '_blank', 'noopener');
+      // Let the browser reclaim memory later; leave URL alive a bit for printing
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+    } catch {
+      // no-op; keep UX silent here
+    }
+  };
+
+  // Resolve the PO data for a given line item from current state
+  const resolvePOForItem = (item: InvoiceLineItem) => {
+    const existing = purchaseOrders?.find(po => po.poId === item.poId);
+    return existing || {
+      poId: item.poId,
+      supplierName: (item as any).assignedSupplierName,
+      supplierPhone: (item as any).assignedSupplierPhone,
+      purchasePrice: item.unitPrice,
+      relatedInvoiceId: invoiceId,
+      productName: item.productName,
+      quantity: item.quantity,
+      createdDate: new Date().toISOString(),
+      createdBy: (typeof window !== 'undefined' && sessionStorage.getItem('currentUserName')) || 'Current User'
+    };
+  };
+
   const handlePOCreated = (poData: any) => {
     if (selectedItemForPO) {
       // FIX: Update the local line item WITHOUT triggering a full refresh
       onLineItemUpdate(selectedItemForPO.id, {
         poId: poData.poId,
-        fulfillmentSource: 'OUTSOURCE'
-      });
+        fulfillmentSource: 'OUTSOURCE',
+        // store supplier name locally for immediate UI; parent model may not include this field
+        assignedSupplierName: poData.supplierName,
+        assignedSupplierPhone: poData.supplierPhone
+      } as any);
       
       // FIX: Create the PO in the background without refreshing the UI
       // This prevents losing other assignments
@@ -88,7 +260,7 @@ export function FulfillmentTable({
         quantity: selectedItemForPO.quantity,        // ← THIS WAS MISSING!
         sellingPrice: selectedItemForPO.unitPrice * selectedItemForPO.quantity,
         createdDate: new Date().toISOString(),
-        createdBy: 'currentUser.name'
+        createdBy: (typeof window !== 'undefined' && sessionStorage.getItem('currentUserName')) || 'Current User'
       });
     }
     setPODialogOpen(false);
@@ -180,10 +352,26 @@ export function FulfillmentTable({
 
 
       case 'OUTSOURCE':
+        // Add safety check for undefined purchaseOrders
+        const relatedPO = purchaseOrders?.find(po => po.poId === item.poId);
+        const supplierName = (item as any).assignedSupplierName || relatedPO?.supplierName || 'Unknown Supplier';
+        
         return (
           <div className="flex items-center gap-2">
             {item.poId ? (
-              <Badge variant="success" className="text-xs">PO: {item.poId}</Badge>
+              <>
+                <Badge variant="success" className="text-xs">
+                  {supplierName}
+                </Badge>
+                <Button
+                  onClick={() => downloadPOPdf(resolvePOForItem(item))}
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                >
+                  Download PDF
+                </Button>
+              </>
             ) : (
               <Button
                 onClick={() => handleCreatePO(item)}
@@ -214,8 +402,8 @@ export function FulfillmentTable({
         <div className="rounded-xl border bg-white shadow-sm">
           <div className="px-4 py-3 border-b bg-gray-50/60 rounded-t-xl">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-gray-700">Fulfillment Assignment</p>
-              <div className="text-xs text-muted-foreground">Select source and provide assignment details</div>
+              <p className="text-sm font-medium text-gray-700">Product SourceAssignment</p>
+              <div className="text-xs text-muted-foreground">Select and assign sourcedetails</div>
             </div>
           </div>
           <Table>
@@ -237,7 +425,7 @@ export function FulfillmentTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lineItems.map((item) => {
+              {paginatedItems.map((item) => {
                 const isComplete = (() => {
                   if (!item.fulfillmentSource) return false;
                   switch (item.fulfillmentSource) {
@@ -335,6 +523,40 @@ export function FulfillmentTable({
           </Table>
         </div>
       </div>
+
+      <div className="pt-3">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setPage(Math.max(1, page - 1)); }}
+                />
+              </PaginationItem>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .slice(Math.max(0, page - 3), Math.max(0, page - 3) + 5)
+                .map((n) => (
+                  <PaginationItem key={n}>
+                    <PaginationLink
+                      href="#"
+                      isActive={n === page}
+                      onClick={(e) => { e.preventDefault(); setPage(n); }}
+                    >
+                      {n}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setPage(Math.min(totalPages, page + 1)); }}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
 
       {selectedItemForPO && (
         <PurchaseOrderDialog

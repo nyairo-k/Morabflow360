@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,8 @@ import { DashboardCards } from "@/components/requisitions/DashboardCards";
 import { CreateRequisitionDialog } from "@/components/requisitions/CreateRequisitionDialog";
 import { RequisitionCard } from "@/components/requisitions/RequisitionCard";
 import { Requisition } from "@/types/requisition"; // Assuming this type is correct
+import { usePagination } from "@/hooks/use-pagination";
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 
 // Define a type for our user object
 interface User {
@@ -41,9 +43,36 @@ export default function RequisitionsPage({
     return sourceRequisitions.filter(req => {
       if (!req) return false; // Discard any invalid entries
 
-      // Status Filter
-      if (statusFilter !== 'all' && req.approvalStatus !== statusFilter) {
+      // Status Filter - Updated logic to handle all status types
+      if (statusFilter !== 'all') {
+        let matchesFilter = false;
+        
+        switch (statusFilter) {
+          case 'Pending Approval':
+            matchesFilter = req.approvalStatus === 'Pending Approval';
+            break;
+          case 'Approved':
+            matchesFilter = req.approvalStatus === 'Approved' && req.paymentStatus === 'Unpaid';
+            break;
+          case 'Paid':
+            matchesFilter = req.paymentStatus === 'Paid' && req.receiptStatus !== 'Received';
+            break;
+          case 'Paid - Awaiting Receipt':
+            matchesFilter = req.paymentStatus === 'Paid' && req.receiptStatus !== 'Received';
+            break;
+          case 'Received':
+            matchesFilter = req.receiptStatus === 'Received';
+            break;
+          case 'Rejected':
+            matchesFilter = req.approvalStatus === 'Rejected';
+            break;
+          default:
+            matchesFilter = false;
+        }
+        
+        if (!matchesFilter) {
           return false;
+        }
       }
 
       // Search Term Filter (with defensive checks)
@@ -65,10 +94,15 @@ export default function RequisitionsPage({
   
   // Call the function to get the list to display
   const filteredRequisitions = getFilteredRequisitions();
+  const { page, totalPages, setPage, slice } = usePagination({ totalItems: filteredRequisitions.length, initialPage: 1, initialPageSize: 10 });
+  const paginatedRequisitions = useMemo(() => {
+    const [start, end] = slice;
+    return filteredRequisitions.slice(start, end);
+  }, [filteredRequisitions, slice]);
 
   // Your other helper functions and constants remain
   const departments = [...new Set(requisitions.map(req => req.department))];
-  const statuses = ['Pending Approval', 'Approved', 'Paid', 'Received', 'Rejected'];
+  const statuses = ['Pending Approval', 'Approved', 'Paid', 'Paid - Awaiting Receipt', 'Received', 'Rejected'];
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -80,7 +114,7 @@ export default function RequisitionsPage({
             <p className="text-muted-foreground">Welcome, {currentUser.name}</p>
           </div>
           <div className="flex gap-2">
-            {currentUser.role === 'InventoryStaff' && (
+            {(currentUser.role === 'InventoryStaff' || currentUser.role === 'Sales') && (
               <CreateRequisitionDialog currentUser={currentUser} onAction={onAction} />
             )}
             {/* The refresh button in index.tsx is what triggers the data reload */}
@@ -116,13 +150,13 @@ export default function RequisitionsPage({
 
         {/* Results count */}
         <div className="text-sm text-muted-foreground">
-            Showing {filteredRequisitions.length} of {requisitions.length} requisitions
+            Showing {paginatedRequisitions.length} of {filteredRequisitions.length} filtered, from {requisitions.length} total
         </div>
 
         {/* Requisitions List */}
         {filteredRequisitions.length > 0 ? (
           <div className="space-y-4">
-            {filteredRequisitions.map((requisition) => (
+            {paginatedRequisitions.map((requisition) => (
               <RequisitionCard
                 key={requisition.id}
                 requisition={requisition}
@@ -130,6 +164,37 @@ export default function RequisitionsPage({
                 onAction={onAction}
               />
             ))}
+            <div className="pt-4">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#"
+                      onClick={(e) => { e.preventDefault(); setPage(Math.max(1, page - 1)); }}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .slice(Math.max(0, page - 3), Math.max(0, page - 3) + 5)
+                    .map((n) => (
+                      <PaginationItem key={n}>
+                        <PaginationLink
+                          href="#"
+                          isActive={n === page}
+                          onClick={(e) => { e.preventDefault(); setPage(n); }}
+                        >
+                          {n}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#"
+                      onClick={(e) => { e.preventDefault(); setPage(Math.min(totalPages, page + 1)); }}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
           </div>
         ) : (
           <div className="text-center py-12 text-muted-foreground">

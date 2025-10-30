@@ -1,28 +1,64 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, ChevronDown, ChevronRight, Download, FileText } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Download, FileText, RefreshCw } from "lucide-react";
+import { usePagination } from "@/hooks/use-pagination";
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 
 interface QuotationsListProps {
   quotations: any[];
   onApprove: (id: string) => void;
+  onRefresh?: () => void;
 }
 
-export function QuotationsList({ quotations, onApprove }: QuotationsListProps) {
+export function QuotationsList({ quotations, onApprove, onRefresh }: QuotationsListProps) {
   const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null);
 
   const handleToggleExpand = (quoteId: string) => {
     setExpandedQuoteId(prevId => (prevId === quoteId ? null : quoteId));
   };
 
+  const getItemsArray = (quote: any): any[] => {
+    const raw = quote?.items;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const { page, totalPages, setPage, slice } = usePagination({ totalItems: quotations?.length || 0, initialPage: 1, initialPageSize: 10 });
+  const paginatedQuotations = useMemo(() => {
+    const [start, end] = slice;
+    return (quotations || []).slice(start, end);
+  }, [quotations, slice]);
+
   return (
     <Card>
       <CardHeader>
-         <CardTitle className="flex items-center space-x-2">
-            <FileText className="h-5 w-5" />
-            <span>My Quotations</span>
+         <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <FileText className="h-5 w-5" />
+              <span>My Quotations</span>
+            </div>
+            {onRefresh && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={onRefresh}
+                className="flex items-center space-x-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span>Refresh</span>
+              </Button>
+            )}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -39,7 +75,7 @@ export function QuotationsList({ quotations, onApprove }: QuotationsListProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {quotations.map((quote) => (
+            {paginatedQuotations.map((quote) => (
               <>
                 <TableRow key={quote.id}>
                   <TableCell>
@@ -79,7 +115,7 @@ export function QuotationsList({ quotations, onApprove }: QuotationsListProps) {
                       <div className="p-4 bg-muted">
                         <h4 className="font-semibold mb-2">Quoted Items:</h4>
                         <div className="space-y-1 pl-4">
-                          {quote.items.map((item: any, index: number) => (
+                          {getItemsArray(quote).map((item: any, index: number) => (
                             <div key={index} className="grid grid-cols-3 gap-4 text-sm">
                               <span>- {item.productName}</span>
                               <span>Qty: {item.quantity}</span>
@@ -95,6 +131,37 @@ export function QuotationsList({ quotations, onApprove }: QuotationsListProps) {
             ))}
           </TableBody>
         </Table>
+        <div className="pt-4">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setPage(Math.max(1, page - 1)); }}
+                />
+              </PaginationItem>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .slice(Math.max(0, page - 3), Math.max(0, page - 3) + 5)
+                .map((n) => (
+                  <PaginationItem key={n}>
+                    <PaginationLink
+                      href="#"
+                      isActive={n === page}
+                      onClick={(e) => { e.preventDefault(); setPage(n); }}
+                    >
+                      {n}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setPage(Math.min(totalPages, page + 1)); }}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
       </CardContent>
     </Card>
   );

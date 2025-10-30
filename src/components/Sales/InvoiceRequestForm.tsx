@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FileSignature, PlusCircle, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { isTenDigitPhone, normalizeTenDigitPhone } from "@/lib/utils";
 
 interface InvoiceRequestFormProps {
   onSubmit: (invoice: any) => void;
@@ -53,11 +54,16 @@ export function InvoiceRequestForm({ onSubmit }: InvoiceRequestFormProps) {
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const normalizedPhone = normalizeTenDigitPhone(customerPhone);
+    if (!isTenDigitPhone(customerPhone)) {
+      toast.error("Invalid phone number", { description: "Phone number must have exactly 10 digits." });
+      return;
+    }
     
     const invoiceRequest = {
       id: `INV-REQ-${Date.now()}`,
       clientName: clientName,
-      customerPhone: customerPhone,
+      customerPhone: normalizedPhone,
       items: items,
       totalAmount: totalAmount,
       status: "Waiting",
@@ -90,8 +96,18 @@ export function InvoiceRequestForm({ onSubmit }: InvoiceRequestFormProps) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="inv-customerPhone">Customer Phone</Label>
-              <Input id="inv-customerPhone" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="+254..." />
+              <Label htmlFor="inv-customerPhone">Customer Phone *</Label>
+              <Input
+                id="inv-customerPhone"
+                type="tel"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                placeholder="07XXXXXXXX"
+                inputMode="numeric"
+                pattern="[0-9]{10}"
+                maxLength={10}
+                required
+              />
             </div>
           </div>
 

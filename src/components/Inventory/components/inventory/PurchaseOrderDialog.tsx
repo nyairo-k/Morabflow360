@@ -8,14 +8,16 @@ import { Separator } from "@/components/Inventory/components/ui/separator";
 import { Badge } from "@/components/Inventory/components/ui/badge";
 import { Building, Phone, DollarSign, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
-import type { InvoiceLineItem } from "@/components/Inventory/types";
+import { isTenDigitPhone, normalizeTenDigitPhone } from "@/lib/utils";
+import type { InvoiceLineItem, PurchaseOrder, Supplier } from "@/components/Inventory/types/inventory";
 
 interface PurchaseOrderDialogProps {
   open: boolean;
   onClose: () => void;
   lineItem: InvoiceLineItem;
   invoiceId: string;
-  onAction: (purchaseOrder: PurchaseOrder) => void;
+  onAction: (action: string, data: any) => void;
+  onPOCreated: (poData: PurchaseOrder | any) => void;
   suppliers: Supplier[]; 
 }
 
@@ -24,8 +26,9 @@ export function PurchaseOrderDialog({
   onClose, 
   lineItem, 
   invoiceId, 
-  onAction, // Changed from onPOCreated
-  suppliers // Add this prop
+  onAction,
+  onPOCreated,
+  suppliers
 }: PurchaseOrderDialogProps) {
   const [supplierName, setSupplierName] = useState("");
   const [supplierPhone, setSupplierPhone] = useState("");
@@ -48,21 +51,84 @@ export function PurchaseOrderDialog({
       return;
     }
 
-    const poData = {
+    // Validate supplier phone: exactly 10 digits
+    if (!isTenDigitPhone(supplierPhone)) {
+      toast.error("Invalid supplier phone", { description: "Phone number must have exactly 10 digits." });
+      return;
+    }
+
+    const currentUserName = (typeof window !== 'undefined' && sessionStorage.getItem('currentUserName')) || 'Current User';
+
+    const poData: any = {
       poId: `PO-${Date.now()}`,
       supplierName: supplierName,
-      supplierPhone: supplierPhone,
+      supplierPhone: normalizeTenDigitPhone(supplierPhone),
       purchasePrice: parseFloat(purchasePrice) || 0,
       relatedInvoiceId: invoiceId,
-      productId: lineItem.productId,
+      productName: lineItem.productName,
       quantity: lineItem.quantity,
       sellingPrice: lineItem.unitPrice,
+      profit: profitMargin,
       createdDate: new Date().toISOString(),
-      createdBy: 'currentUser.name' // You'll need to pass this down
+      createdBy: currentUserName,
+      paymentStatusToSupplier: 'UNPAID'
     };
     
-    // Call the master handler
-    onAction('createPurchaseOrder', poData);
+    // Notify parent immediately so the UI updates (poId set, status becomes ready)
+    onPOCreated(poData);
+
+    // Build a standalone printable HTML and offer it via toast link (no navigation)
+    try {
+      const qty = Number(poData.quantity || 0);
+      const price = Number(poData.purchasePrice || 0);
+      const total = (qty * price).toLocaleString();
+
+      const html = `<!doctype html><html><head><meta charset=\"utf-8\"/><title>Purchase Order</title>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;}
+@page{size:A4;margin:12mm;} .wrap{width:210mm;min-height:297mm;padding:12mm;margin:0 auto;background:#fff;color:#000}
+.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ddd;padding-bottom:8px}
+small{color:#666} table{width:100%;border-collapse:collapse;margin-top:12px} th,td{padding:6px;border-bottom:1px solid #eee}
+th{text-align:left} td.num{text-align:right}
+.section{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+.sign{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:28px}
+.box{height:64px;border-bottom:1px solid #000}
+</style></head><body>
+<div class=\"wrap\">
+  <div class=\"hdr\"><div><h2>Purchase Order</h2><small>Generated ${new Date().toLocaleString()}</small></div><img src=\"/logo.png\" alt=\"Company\" style=\"height:40px\"/></div>
+  <div class=\"section\">
+    <div>
+      <div><strong>PO No:</strong> ${poData.poId}</div>
+      <div><strong>Supplier:</strong> ${poData.supplierName}</div>
+      <div><strong>Phone:</strong> ${poData.supplierPhone}</div>
+    </div>
+    <div style=\"text-align:right\">
+      <div><strong>Date:</strong> ${new Date().toLocaleDateString()}</div>
+      <div><strong>Invoice Ref:</strong> ${poData.relatedInvoiceId || '-'}</div>
+      <div><strong>Created By:</strong> ${poData.createdBy || '-'}</div>
+    </div>
+  </div>
+  <table><thead><tr><th>Product</th><th class=\"num\">Qty</th><th class=\"num\">Unit Cost</th><th class=\"num\">Total</th></tr></thead>
+    <tbody><tr><td>${poData.productName}</td><td class=\"num\">${qty}</td><td class=\"num\">${price.toLocaleString()}</td><td class=\"num\">${total}</td></tr></tbody>
+    <tfoot><tr><td colspan=\"3\" style=\"text-align:right\"><strong>Total</strong></td><td class=\"num\"><strong>${total}</strong></td></tr></tfoot>
+  </table>
+  <div class=\"sign\"><div><div><strong>Authorized By</strong></div><div class=\"box\"></div><small>Signature / Date</small></div>
+       <div><div><strong>Supplier Acceptance</strong></div><div class=\"box\"></div><small>Signature / Date</small></div></div>
+</div>
+<script>window.addEventListener('load',()=>{document.title='Purchase Order';});</script>
+</body></html>`;
+
+      const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+      toast.success("Purchase Order created", {
+        description: (
+          <a href={blobUrl} target="_blank" rel="noopener" className="underline">
+            Open print view in new tab
+          </a>
+        )
+      });
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+    } catch (err) {
+      console.error('Failed to prepare PO print view:', err);
+    }
     
     // Close the dialog
     handleClose();
@@ -132,9 +198,13 @@ export function PurchaseOrderDialog({
                 </Label>
                 <Input
                   id="supplierPhone"
+                  type="tel"
                   value={supplierPhone}
-                  onChange={(e) => setSupplierPhone(e.target.value)}
-                  placeholder="+254712345678"
+                  onChange={(e) => setSupplierPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                  placeholder="07XXXXXXXX"
+                  inputMode="numeric"
+                  pattern="[0-9]{10}"
+                  maxLength={10}
                   required
                 />
               </div>

@@ -10,25 +10,33 @@ export interface RequisitionItem {
 export interface Requisition {
   id: string;
   department: string;
-  supplierName: string;
-  requestedBy: string;
-  requestDate: string;
+  supplierName?: string;
   totalAmount: number;
-  status: 'Pending Approval' | 'Approved' | 'Paid' | 'Awaiting Receipt' | 'Completed';
-  items: RequisitionItem[];
+  items: RequisitionItem[] | string;
   notes?: string;
-  stockVerified?: boolean;
-  receiptUploaded?: boolean;
-  receiptUrl?: string;
+  // Expanded status model used by UI
+  approvalStatus: 'Pending Approval' | 'Approved' | 'Rejected';
+  paymentStatus: 'Unpaid' | 'Paid';
+  receiptStatus?: 'Pending' | 'Received';
+  // Metadata used in UI and filters
+  createdBy: string;
+  createdDate: string;
+  expenseCategory?: string;
+  // Audit fields
   approvedBy?: string;
-  approvedDate?: string;
+  approvalDate?: string;
   paidBy?: string;
-  paidDate?: string;
+  paymentDate?: string;
+  receivedBy?: string;
+  receivedDate?: string;
+  receiptUrl?: string;
+  // Optional raw payment details blob
+  paymentDetails?: any;
 }
 
 export interface User {
   name: string;
-  role: 'InventoryStaff' | 'Admin' | 'Disbursements';
+  role: 'InventoryStaff' | 'Admin' | 'Disbursements' | 'Sales' | 'Finance';
 }
 
 export interface RequisitionsPageProps {

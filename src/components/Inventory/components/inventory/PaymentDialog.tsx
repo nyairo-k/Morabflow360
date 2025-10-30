@@ -9,7 +9,8 @@ import { Badge } from "@/components/Inventory/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/Inventory/components/ui/table";
 import { Upload, DollarSign, CreditCard, Receipt, Building, Phone } from "lucide-react";
 import { toast } from "sonner";
-import type { PurchaseOrder, PaymentDetails } from "@/components/Inventory/types";
+import { cfg } from "@/lib/config";
+import type { PurchaseOrder, PaymentDetails } from "@/components/Inventory/types/inventory";
 
 interface PaymentDialogProps {
   open: boolean;
@@ -82,21 +83,13 @@ export function PaymentDialog({
     if (file) {
       // Validate file type (images only)
       if (!file.type.startsWith('image/')) {
-        toast({
-          title: "Invalid File Type",
-          description: "Please select an image file for proof of payment.",
-          variant: "destructive",
-        });
+        toast.error("Invalid file type. Please select an image file for proof of payment.");
         return;
       }
       
       // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: "File Too Large",
-          description: "Please select a file smaller than 5MB.",
-          variant: "destructive",
-        });
+        toast.error("File too large. Please select a file smaller than 5MB.");
         return;
       }
       
@@ -112,11 +105,11 @@ export function PaymentDialog({
       formData.append("poId", purchaseOrder.poId);
       formData.append("invoiceId", purchaseOrder.relatedInvoiceId);
 
-      const response = await fetch("http://localhost:4000/upload-purchase-order-receipt", {
+      const response = await fetch(`${cfg.apiBase}/upload-purchase-order-receipt`, {
         method: "POST",
         body: formData,
       });
-
+      
       if (!response.ok) {
         throw new Error("File upload failed");
       }
@@ -136,6 +129,10 @@ export function PaymentDialog({
     
     if (!amountPaid || !mpesaCode) {
       toast.error("Please fill in all required fields");
+      return;
+    }
+    if (!receiptFile) {
+      toast.error("Proof of payment image is required.");
       return;
     }
 
@@ -347,7 +344,7 @@ export function PaymentDialog({
                 <div className="space-y-2">
                   <Label htmlFor="proofFile">
                     <Upload className="inline h-4 w-4 mr-1" />
-                    Proof of Payment (Optional)
+                    Proof of Payment (Image) *
                   </Label>
                   <div className="flex items-center gap-4">
                     <Input
@@ -364,7 +361,7 @@ export function PaymentDialog({
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Upload an image file (max 5MB)
+                    Upload an image file (max 5MB). This is required to log payment.
                   </p>
                 </div>
 

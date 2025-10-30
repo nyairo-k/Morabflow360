@@ -27,14 +27,15 @@ export interface Supplier {
 export interface PurchaseOrder {
   poId: string;
   relatedInvoiceId: string;
-  productId: string;
-  quantity: string | number;  // ← Allow both string and number
+  productName: string;  // ← CHANGE: Use productName instead of productId
+  quantity: string | number;
   supplierName: string;
-  supplierPhone: string | number;  // ← Allow both string and number
+  supplierPhone: string | number;
   purchasePrice: number;
   sellingPrice: number;
+  profit: number;  // ← ADD: Include profit field
   supplierInvoiceURL?: string;
-  paymentStatusToSupplier: 'Unpaid' | 'UNPAID' | 'PARTIAL' | 'PAID';  // ← Allow both cases
+  paymentStatusToSupplier: 'Unpaid' | 'UNPAID' | 'PARTIAL' | 'PAID';
   paymentDetailsToSupplier?: PaymentDetails[];
 }
 
@@ -56,6 +57,7 @@ export interface InvoiceLineItem {
   poId?: string;
   assignedLocation?: string;
   assignedRep?: string;
+  assignedSupplierName?: string;
 }
 
 export interface Invoice {
@@ -75,4 +77,49 @@ export interface FieldRep {
   name: string;
   phone: string;
   location: string;
+}
+
+export interface DispatchOrder {
+  dispatchItemId: string;
+  invoiceId: string;
+  productId: string;
+  quantityToDispatch: number;
+  sourceDetails: string;
+  assignedBy: string;
+  assignmentDate: string;
+  dispatchApprovalStatus: 'Awaiting Fulfillment' | 'Pending Approval' | 'Approved' | 'Rejected';
+  approvedBy: string;
+  approvalDate: string;
+  salesRep: string;
+  postedDate: string;
+}
+
+export interface Requisition {
+  id: string;
+  department: string;
+  supplierName: string;
+  requestedBy: string;
+  requestDate: string;
+  createdDate: string;
+  totalAmount: number;
+  status: 'Pending Approval' | 'Approved' | 'Paid' | 'Awaiting Receipt' | 'Completed';
+  paymentStatus: 'Unpaid' | 'Paid' | 'Partial';
+  items: RequisitionItem[];
+  notes?: string;
+  stockVerified?: boolean;
+  receiptUploaded?: boolean;
+  receiptUrl?: string;
+  approvedBy?: string;
+  approvedDate?: string;
+  paidBy?: string;
+  paidDate?: string;
+}
+
+export interface RequisitionItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  description?: string;
 }

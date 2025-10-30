@@ -17,6 +17,13 @@ import { toast } from "sonner";
 import RequisitionsPage from "@/components/requisitions/RequisitionsPage";
 import { Requisition } from "@/types/requisition";
 import { FulfillmentCenter } from "../components/Inventory/components/inventory/FulfillmentCenter";
+import { DisbursementsDashboard } from "@/components/Finance/components/dashboard/DisbursementsDashboard";
+import { InventoryStaffDashboard } from "@/components/Inventory/components/dashboard/InventoryStaffDashboard";
+import { RefreshCw } from "lucide-react";
+import { ReportsDashboard } from "@/components/Dashboard/ReportsDashboard";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
+import { cfg } from "@/lib/config";
 
 
 // Define a type for our user object
@@ -50,6 +57,10 @@ const Index = () => {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [dispatchOrders, setDispatchOrders] = useState<any[]>([]);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Use the mobile hook
+  const isMobile = useIsMobile();
 
   const fieldReps = [
     { id: "rep1", name: "Cecilia Ndinda" },
@@ -97,26 +108,32 @@ const invoicesForFulfillment = useMemo(() => {
   
   const refreshInvoiceData = async () => {
     if (!currentUser) return;
-    console.log("Refreshing all invoice and payment data...");
+    console.log("Refreshing invoice data for user:", currentUser.name);
     setIsLoading(true);
 
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwO99bRUkNFlufBSSjG6GUn2mSwWi5NjqTLub9emV-jOulzEg69nDxBGycdJDBDCr4d/exec"; 
+    const GOOGLE_SCRIPT_URL = cfg.googleScript; 
 
     try {
-      const response = await fetch(GOOGLE_SCRIPT_URL);
+      // CHANGE: Only filter for Sales users, Finance and Admin see all data
+      const url = new URL(GOOGLE_SCRIPT_URL);
+      
+      // Only add requester filter for Sales role
+      if (currentUser.role === "Sales") {
+        url.searchParams.append('requester', currentUser.name);
+      }
+      
+      const response = await fetch(url.toString());
       const result = await response.json();
       
       if (result.status === "success") {
-        // Deconstruct the new data object from the response
         const { invoices, payments } = result.data;
         
         const sortedInvoices = invoices.sort((a, b) => 
           new Date(b.submittedDate).getTime() - new Date(a.submittedDate).getTime()
         );
 
-        // Set BOTH state variables with the new data
         setInvoices(sortedInvoices);
-        setPayments(payments || []); // Use || [] as a safeguard
+        setPayments(payments || []);
         
         toast.success("Invoice & Payment data refreshed!");
       } else {
@@ -142,10 +159,10 @@ const invoicesForFulfillment = useMemo(() => {
                 formData.append("paymentImage", imageFile);
                 formData.append("invoiceId", paymentData.invoiceId);
                 
-                const uploadResponse = await fetch("http://localhost:4000/upload-payment-image", {
-                    method: "POST",
-                    body: formData,
-                });
+                const uploadResponse = await fetch(`${cfg.apiBase}/upload-payment-image`, {
+                  method: "POST",
+                  body: formData,
+              });
 
                 if (!uploadResponse.ok) {
                     const err = await uploadResponse.json();
@@ -155,12 +172,27 @@ const invoicesForFulfillment = useMemo(() => {
                 imageUrl = uploadResult.url;
             }
 
-            // STEP 2: LOG THE PAYMENT DETAILS (with the new URL) to the Apps Script
-            const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwO99bRUkNFlufBSSjG6GUn2mSwWi5NjqTLub9emV-jOulzEg69nDxBGycdJDBDCr4d/exec"; // Use your main script URL
+            // STEP 2: Calculate payment status and balance
+            const relatedPayments = payments.filter(p => p.invoiceId === paymentData.invoiceId);
+            const totalPaid = relatedPayments.reduce((sum, p) => sum + Number(p.amountPaid || 0), 0) + Number(paymentData.amountPaid);
+            const totalAmount = Number(invoices.find(inv => inv.id === paymentData.invoiceId)?.totalAmount || 0);
+            
+            let paymentStatus = 'Unpaid';
+            let balance = totalAmount;
+            
+            if (totalPaid > 0 && totalAmount > 0) {
+                paymentStatus = totalPaid >= totalAmount ? 'Paid' : 'Partially Paid';
+                balance = totalAmount - totalPaid;
+            }
+
+            // STEP 3: LOG THE PAYMENT DETAILS with status and balance
+            const GOOGLE_SCRIPT_URL = cfg.googleScript;
             const payload = {
                 type: "logPayment",
                 ...paymentData,
-                paymentImageUrl: imageUrl, // Will be the new URL from Step 1, or an empty string
+                paymentImageUrl: imageUrl,
+                paymentStatus: paymentStatus,  // ADD THIS
+                balance: balance              // ADD THIS
             };
 
             const logResponse = await fetch(GOOGLE_SCRIPT_URL, {
@@ -171,36 +203,73 @@ const invoicesForFulfillment = useMemo(() => {
 
             const logResult = await logResponse.json();
             if (logResult.status === 'success') {
-                resolve(); // Everything succeeded
+                resolve();
             } else {
                 throw new Error(logResult.message || "Failed to log payment in sheet.");
             }
         } catch (error) {
-            reject(error); // If any step failed, reject the promise
+            reject(error);
         }
     });
 
     toast.promise(promise, {
         loading: 'Processing payment...',
         success: () => {
-            refreshInvoiceData(); // Refresh all data on success
+            refreshInvoiceData();
             return 'Payment logged successfully!';
         },
         error: (err) => `Payment Error: ${err.message}`
     });
+};
+
+const handleConfirmPayment = async (paymentId: string) => {
+  const GOOGLE_SCRIPT_URL = cfg.googleScript; 
+  
+  const payload = {
+    type: "confirmPayment",
+    paymentId: paymentId,
+    confirmedBy: currentUser.name
   };
+
+  try {
+    const response = await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await response.json();
+    if (result.status === 'success') {
+      refreshInvoiceData(); // Refresh data after confirmation
+      toast.success("Payment confirmed successfully!");
+    } else {
+      throw new Error(result.message);
+    }
+  } catch (error) {
+    console.error('Error confirming payment:', error);
+    toast.error('Failed to confirm payment');
+  }
+};
 
 const refreshRequisitionData = async () => {
     if (!currentUser) return;
-    console.log("Fetching all requisition data...");
+    console.log("Fetching requisition data for user:", currentUser.name);
     // We can use the same isLoading state for all initial data fetches
     setIsLoading(true);
 
     // !! IMPORTANT !! Use the NEW URL from your dedicated Requisitions Apps Script
-    const REQ_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbynj4wHqz6Jzue8jRQXXMsE7S03H3t7SQDkeyn7OwVQyj7nisbaaOj-WOh44NXDT7trcA/exec"; 
+    const REQ_SCRIPT_URL = cfg.requisitionsScript; 
 
     try {
-      const response = await fetch(REQ_SCRIPT_URL);
+      // CHANGE: Filter for both Sales and InventoryStaff users, other roles see all data
+      const url = new URL(REQ_SCRIPT_URL);
+      
+      // Add createdBy filter for Sales and InventoryStaff roles
+      if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff") {
+        url.searchParams.append('createdBy', currentUser.name);
+      }
+      
+      const response = await fetch(url.toString());
       const result = await response.json();
       
       if (result.status === "success") {
@@ -222,34 +291,25 @@ const refreshRequisitionData = async () => {
 
 const refreshInventoryData = async () => {
   if (!currentUser) return;
-  console.log("Fetching all inventory data...");
-
-  const INV_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxXzLPpbTj4SI1fAyuC86vSMPglgbelREePHLCFCsLI8OKNVcaU7YBwfNpABfg3swbbzw/exec"; 
+  
+    const INV_SCRIPT_URL = cfg.inventoryScript;
 
   try {
-    const response = await fetch(INV_SCRIPT_URL);
+    const response = await fetch(INV_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'getData' })
+    });
     const result = await response.json();
     
-    console.log("Raw Apps Script response:", result);
-    
     if (result.status === "success") {
-      // FIX: Access data directly from result object
-      const products = result.products || [];
-      const suppliers = result.suppliers || [];
-      const purchaseOrders = result.purchaseOrders || [];
-      const dispatchOrders = result.dispatchOrders || [];
-      
-      console.log("Extracted data:", { products, suppliers, purchaseOrders, dispatchOrders });
-      
-      setProducts(products);
-      setSuppliers(suppliers);
-      setPurchaseOrders(purchaseOrders);
-      setDispatchOrders(dispatchOrders);
-    } else {
-      toast.error("Failed to load inventory data: " + result.message);
+      setProducts(result.products || []);
+      setSuppliers(result.suppliers || []);
+      setPurchaseOrders(result.purchaseOrders || []);
+      setDispatchOrders(result.dispatchOrders || []);
     }
   } catch (error) {
-    console.error("Full error details:", error);
+    console.error("Error:", error);
     toast.error("Network error while loading inventory data.");
   }
 };
@@ -259,7 +319,7 @@ const refreshInventoryData = async () => {
     if (currentUser && clients.length === 0) {
       const fetchInitialData = async () => {
         // !! IMPORTANT !! YOU MUST REPLACE THIS URL WITH YOUR CRM SCRIPT URL
-        const CRM_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyVaApUc7-Prj7w5ETFIe8yCtKBoq-bTnvlOksVWAwZWvUkoX__Zg5oFOu2x8uBJYfj/exec"; 
+        const CRM_SCRIPT_URL = cfg.crmScript; 
         
         try {
           const response = await fetch(CRM_SCRIPT_URL);
@@ -284,6 +344,7 @@ useEffect(() => {
     refreshInvoiceData();
     refreshRequisitionData();
     refreshInventoryData();
+    refreshQuotationData(); // Add this line
     // fetchInitialClientData(); 
   }
 }, [currentUser]);
@@ -291,6 +352,7 @@ useEffect(() => {
   // --- MODIFICATION: Updated login/logout handlers ---
   const handleLogin = (user: User) => {
     setCurrentUser(user);
+    try { sessionStorage.setItem('currentUserName', user.name); } catch {}
     setActiveSection("dashboard");
   };
 
@@ -313,9 +375,15 @@ useEffect(() => {
 // ADD this entire function in the same place where you just deleted the placeholders.
 // A good spot is right after `addClientToState`.
 
+  // Update the handleRequisitionAction function to handle refresh
   const handleRequisitionAction = (action: string, data: any) => {
+    // Handle refresh action separately
+    if (action === 'refresh') {
+      return refreshRequisitionData();
+    }
+
     // !! IMPORTANT !! Use the NEW URL from your dedicated Requisitions Apps Script
-    const REQ_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbynj4wHqz6Jzue8jRQXXMsE7S03H3t7SQDkeyn7OwVQyj7nisbaaOj-WOh44NXDT7trcA/exec";
+    const REQ_SCRIPT_URL = cfg.requisitionsScript;
     const payload = { 
       action, // e.g., 'create', 'approve', 'pay'
       data    // The data object for that action
@@ -335,27 +403,26 @@ useEffect(() => {
     toast.promise(promise, {
         loading: 'Processing requisition...',
         success: (result) => {
-            if (result.status === 'success') {
-                // On any successful action, refresh the master data list
-                refreshRequisitionData(); 
-                return result.message || 'Action completed successfully!';
-            } else {
-                // If the script itself reports an error
-                throw new Error(result.message);
-            }
+            // Refresh data after successful action
+            refreshRequisitionData();
+            return result.message || 'Action completed successfully';
         },
-        error: (err) => `Action Failed: ${err.message}`
+        error: (err) => `Error: ${err.message}`,
     });
+
+    return promise;
   };
   // --- YOUR ORIGINAL, UNTOUCHED HANDLER FUNCTIONS ---
   const handleQuotationSubmit = async (quotation: any) => {
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw2g10nBTAiV1JUFpJ6unq-8XENrW_Fxk2QU_cez-HGlkWmFKynRmfXQA-mIrFm2NKu/exec"; 
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyngOpj42j9kULH5Nt2eJB_ppukRbx_nIUjde2CYZq6RoGNBuGkMNs6HPVtSCM5hMB2/exec"; 
     const payload = {
       type: "quotation",
       quoteId: quotation.id,
       clientName: quotation.clientName,
+      customerPhone: quotation.customerPhone, // Add this line
       items: quotation.items,
-      totalAmount: quotation.totalAmount
+      totalAmount: quotation.totalAmount,
+      requester: currentUser.name // Add this line
     };
     try {
       const response = await fetch(GOOGLE_SCRIPT_URL, {
@@ -380,14 +447,15 @@ useEffect(() => {
 
   const handleInvoiceSubmit = (invoice: any) => {
     setInvoices(prev => [...prev, invoice]);
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwO99bRUkNFlufBSSjG6GUn2mSwWi5NjqTLub9emV-jOulzEg69nDxBGycdJDBDCr4d/exec";
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyngOpj42j9kULH5Nt2eJB_ppukRbx_nIUjde2CYZq6RoGNBuGkMNs6HPVtSCM5hMB2/exec";
     const payload = {
       type: "invoiceRequest",
       clientName: invoice.clientName,
       customerPhone: invoice.customerPhone,
       items: invoice.items,
       id: invoice.id, 
-      totalAmount: invoice.totalAmount
+      totalAmount: invoice.totalAmount,
+      requester: currentUser.name
     };
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -426,7 +494,7 @@ useEffect(() => {
     };
     setInvoices(prev => [...prev, invoiceForUi]);
 
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzleToSqw6zAX25KWZ0UnLE4lmiIe2UMNgNAqoFQACx4kwYTSTF9fGx-JgjEG6mk0Ah/exec";
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyngOpj42j9kULH5Nt2eJB_ppukRbx_nIUjde2CYZq6RoGNBuGkMNs6HPVtSCM5hMB2/exec";
     
     const payload = {
       type: "updateQuoteStatus",
@@ -450,8 +518,8 @@ useEffect(() => {
         if (data.status === "success") {
           // THIS IS THE KEY: After the backend confirms success, we refresh ALL data.
           refreshInvoiceData();
-          // You might also want to refresh quotation data here if its status changes
-          // refreshQuotationData(); 
+          // Refresh quotation data to show updated status
+          refreshQuotationData(); // Uncomment this line
           return "Invoice created successfully!";
         } else {
           throw new Error(data.message);
@@ -461,13 +529,52 @@ useEffect(() => {
     });
   };
 
+  // Add this function after refreshInvoiceData
+const refreshQuotationData = async () => {
+  if (!currentUser) return;
+  console.log("Refreshing quotation data for user:", currentUser.name);
+  setIsLoading(true);
+
+  const GOOGLE_SCRIPT_URL = cfg.googleScript; 
+
+  try {
+    // CHANGE: Only filter for Sales users, Finance and Admin see all data
+    const url = new URL(GOOGLE_SCRIPT_URL);
+    
+    // Only add requester filter for Sales role
+    if (currentUser.role === "Sales") {
+      url.searchParams.append('requester', currentUser.name);
+    }
+    
+    const response = await fetch(url.toString());
+    const result = await response.json();
+    
+    if (result.status === "success") {
+      const { quotations } = result.data;
+      
+      if (quotations && quotations.length > 0) {
+        const sortedQuotations = quotations.sort((a, b) => 
+          new Date(b.submittedDate).getTime() - new Date(a.submittedDate).getTime()
+        );
+        setQuotations(sortedQuotations);
+      } else {
+        setQuotations([]);
+      }
+    }
+  } catch (error) {
+    console.error("Error refreshing quotation data:", error);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
   // --- Main Rendering Logic ---
    if (!currentUser) { return <LoginScreen onLogin={handleLogin} />; }
   if (currentUser.forcePasswordChange) { return <ChangePasswordScreen username={currentUser.name} onPasswordChanged={handlePasswordChanged} />; }
 
 const handleInventoryAction = (action: string, data: any) => {
   // Use the CORRECT Inventory Apps Script URL from your script
-  const INV_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxXzLPpbTj4SI1fAyuC86vSMPglgbelREePHLCFCsLI8OKNVcaU7YBwfNpABfg3swbbzw/exec";
+  const INV_SCRIPT_URL = cfg.inventoryScript;
   
   const payload = { 
     action, 
@@ -478,7 +585,7 @@ const handleInventoryAction = (action: string, data: any) => {
 
   const promise = fetch(INV_SCRIPT_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    headers: { 'Content-Type': 'text/plain;charset=utf-8'},
     body: JSON.stringify(payload)
   }).then(res => res.json());
 
@@ -486,9 +593,15 @@ const handleInventoryAction = (action: string, data: any) => {
     loading: 'Processing inventory action...',
     success: (result) => {
       if (result.status === 'success') {
-        // Refresh both inventory and invoice data on success
-        refreshInventoryData();
-        refreshInvoiceData();
+        // FIX: Only refresh on specific actions that require it
+        if (action === 'submitFulfillmentPlan' || 
+            action === 'approveDispatch' || 
+            action === 'rejectDispatch') {
+          // These actions change the invoice status, so refresh is needed
+          refreshInventoryData();
+          refreshInvoiceData();
+        }
+        // For 'createPurchaseOrder', don't refresh - just show success message
         return result.message || 'Action completed successfully!';
       } else {
         throw new Error(result.message);
@@ -497,7 +610,6 @@ const handleInventoryAction = (action: string, data: any) => {
     error: (err) => `Inventory Action Failed: ${err.message}`
   });
 };
-
 
 
 const renderContent = () => {
@@ -511,7 +623,16 @@ const renderContent = () => {
     if (userRole === "Sales") {
       switch (activeSection) {
         case "dashboard": return <SalesDashboard quotations={quotations} invoices={invoices} />;
-        case "sales-quotes": return (<div className="space-y-6"><QuotationForm onSubmit={handleQuotationSubmit} /><QuotationsList quotations={quotations} onApprove={handleQuotationApprove} /></div>);
+        case "sales-quotes": return (
+  <div className="space-y-6">
+    <QuotationForm onSubmit={handleQuotationSubmit} />
+    <QuotationsList 
+      quotations={quotations} 
+      onApprove={handleQuotationApprove}
+      onRefresh={refreshQuotationData}
+    />
+  </div>
+);
         case "sales-invoices": 
   return (<div className="space-y-6">
     <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
@@ -520,6 +641,7 @@ const renderContent = () => {
       payments={payments}
       onLogPayment={handleLogPayment}
       currentUser={currentUser}
+      onRefresh={refreshInvoiceData}
     />
   </div>);
         case "crm": return <CrmPage currentUser={currentUser} clients={clients} onClientAdded={addClientToState} />;
@@ -539,9 +661,23 @@ const renderContent = () => {
     
     else if (userRole === "Finance") {
       switch (activeSection) {
-       case "dashboard": return <FinanceDashboard invoices={invoices} />;
+       case "dashboard": return <FinanceDashboard invoices={invoices} payments={payments} />;
+      case "accounts-payables":
+        return (
+          <DisbursementsDashboard
+            currentUser={currentUser}
+            requisitions={requisitions}
+            onAction={handleRequisitionAction}
+          />
+        );
       case "finance-pending": 
-  return <PendingInvoices invoices={invoices} payments={payments} onUploadSuccess={refreshInvoiceData} />;
+  return <PendingInvoices 
+    invoices={invoices} 
+    payments={payments} 
+    onUploadSuccess={refreshInvoiceData}
+    onConfirmPayment={handleConfirmPayment}
+    currentUser={currentUser}
+  />;
        case "sales-invoices": 
       return (
         <InvoicesList 
@@ -549,6 +685,7 @@ const renderContent = () => {
           payments={payments}
           onLogPayment={handleLogPayment}
           currentUser={currentUser}
+          onRefresh={refreshInvoiceData}
         />
       );
 
@@ -568,9 +705,16 @@ const renderContent = () => {
     
     else if (userRole === "Admin") {
         switch(activeSection) {
-            case "dashboard": return <div><SalesDashboard quotations={quotations} invoices={invoices} /><FinanceDashboard invoices={invoices} /></div>;
+            case "dashboard": return <div><SalesDashboard quotations={quotations} invoices={invoices} /><FinanceDashboard invoices={invoices} payments={payments} /></div>;
+            case "accounts-payables": return (
+              <DisbursementsDashboard
+                currentUser={currentUser}
+                requisitions={requisitions}
+                onAction={handleRequisitionAction}
+              />
+            );
             case "crm": return <CrmPage currentUser={currentUser} clients={clients} onClientAdded={addClientToState} />;
-            case "sales-quotes": return (<div className="space-y-6"><QuotationForm onSubmit={handleQuotationSubmit} /><QuotationsList quotations={quotations} onApprove={handleQuotationApprove} /></div>);
+            case "sales-quotes": return (<div className="space-y-6"><QuotationForm onSubmit={handleQuotationSubmit} /><QuotationsList quotations={quotations} onApprove={handleQuotationApprove} onRefresh={refreshQuotationData} /></div>);
             case "sales-invoices": 
           return (<div className="space-y-6">
             <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
@@ -579,6 +723,7 @@ const renderContent = () => {
               payments={payments}
               onLogPayment={handleLogPayment}
               currentUser={currentUser}
+              onRefresh={refreshInvoiceData}
             />
           </div>);
           case "finance-pending": 
@@ -604,72 +749,106 @@ const renderContent = () => {
       purchaseOrders={purchaseOrders}
       dispatchOrders={dispatchOrders}
       onAction={handleInventoryAction}
+      onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
     />
   );
-            case "reports": return <Card><CardHeader><CardTitle>Management Reports</CardTitle></CardHeader><CardContent>Reports module component will be built here.</CardContent></Card>;
+            case "reports": return (
+  <ReportsDashboard 
+    reportsData={[]} // You'll need to add reports data to your state
+    onRefresh={() => {
+      // Add refresh logic here
+      console.log('Refreshing reports data...');
+    }}
+  />
+);
             default: return <div>Admin Dashboard</div>;
         }
     }
 
 // --- NEW: RENDER LOGIC FOR INVENTORY ROLE ---
-    else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the role name
-        switch(activeSection) {
-            case "dashboard": return <Card><CardHeader><CardTitle>Inventory Dashboard</CardTitle></CardHeader><CardContent>Dashboard for Inventory Staff will be built here.</CardContent></Card>;
-           case "inventory":
-  return (
-    <FulfillmentCenter 
-      currentUser={currentUser}
-      invoices={invoicesForFulfillment}
-      suppliers={suppliers}
-      fieldReps={fieldReps}
-      purchaseOrders={purchaseOrders}
-      dispatchOrders={dispatchOrders}
-      onAction={handleInventoryAction}
-    />
-  );
-            case "requisitions":
-  return (
-    <RequisitionsPage
-      currentUser={currentUser}
-      requisitions={requisitions}
-      // Pass the single, powerful handler function for all actions
-      onAction={handleRequisitionAction}
-      onRefresh={refreshRequisitionData}
-    />
-  );
-            default: return <Card><CardHeader><CardTitle>Inventory Dashboard</CardTitle></CardHeader><CardContent>Dashboard for Inventory Staff will be built here.</CardContent></Card>;
-        }
+else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the role name
+    switch(activeSection) {
+        case "dashboard": 
+            return (
+                <InventoryStaffDashboard
+                    currentUser={currentUser}
+                    dispatchOrders={dispatchOrders}
+                    requisitions={requisitions}
+                    onNavigateToSection={setActiveSection}
+                />
+            );
+        case "inventory":
+            return (
+                <FulfillmentCenter 
+                    currentUser={currentUser}
+                    invoices={invoicesForFulfillment}
+                    suppliers={suppliers}
+                    fieldReps={fieldReps}
+                    purchaseOrders={purchaseOrders}
+                    dispatchOrders={dispatchOrders}
+                    onAction={handleInventoryAction}
+                    onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
+                />
+            );
+        case "requisitions":
+            return (
+                <RequisitionsPage
+                    currentUser={currentUser}
+                    requisitions={requisitions}
+                    onAction={handleRequisitionAction}
+                    onRefresh={refreshRequisitionData}
+                />
+            );
+        default: 
+            return (
+                <InventoryStaffDashboard
+                    currentUser={currentUser}
+                    dispatchOrders={dispatchOrders}
+                    requisitions={requisitions}
+                    onNavigateToSection={setActiveSection}
+                />
+            );
     }
+}
     
     // --- NEW: RENDER LOGIC FOR DISBURSEMENTS ROLE ---
     else if (userRole === "Disbursements") {
         switch(activeSection) {
-            case "dashboard": return <Card><CardHeader><CardTitle>Disbursements Dashboard</CardTitle></CardHeader><CardContent>Dashboard for Disbursements will be built here.</CardContent></Card>;
+            case "dashboard": return <DisbursementsDashboard
+              currentUser={currentUser}
+              requisitions={requisitions}
+              onAction={handleRequisitionAction}
+            />;
             case "requisitions":
- return (
-    <RequisitionsPage
-      currentUser={currentUser}
-      requisitions={requisitions}
-      // Pass the single, powerful handler function for all actions
-      onAction={handleRequisitionAction}
-      onRefresh={refreshRequisitionData}
-    />
-  );
+     return (
+        <RequisitionsPage
+          currentUser={currentUser}
+          requisitions={requisitions}
+          // Pass the single, powerful handler function for all actions
+          onAction={handleRequisitionAction}
+          onRefresh={refreshRequisitionData}
+        />
+      );
 
             case "inventory":
-  return (
-    <FulfillmentCenter 
-      currentUser={currentUser}
-      invoices={invoicesForFulfillment} // <-- This is the new, correctly formatted data
-      suppliers={suppliers}
-      fieldReps={fieldReps}
-      purchaseOrders={purchaseOrders}
-      dispatchOrders={dispatchOrders}
-      onAction={handleInventoryAction}
-    />
-  );
+      return (
+        <FulfillmentCenter 
+          currentUser={currentUser}
+          invoices={invoicesForFulfillment} // <-- This is the new, correctly formatted data
+          suppliers={suppliers}
+          fieldReps={fieldReps}
+          purchaseOrders={purchaseOrders}
+          dispatchOrders={dispatchOrders}
+          onAction={handleInventoryAction}
+          onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
+        />
+      );
 
-            default: return <Card><CardHeader><CardTitle>Disbursements Dashboard</CardTitle></CardHeader><CardContent>Dashboard for Disbursements will be built here.</CardContent></Card>;
+            default: return <DisbursementsDashboard
+              currentUser={currentUser}
+              requisitions={requisitions}
+              onAction={handleRequisitionAction}
+            />;
         }
     }
 
@@ -677,14 +856,25 @@ const renderContent = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header currentUser={currentUser} onLogout={handleLogout} />
+      <Header 
+        currentUser={currentUser} 
+        onLogout={handleLogout}
+        onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        isMobile={isMobile}
+      />
       <div className="flex h-[calc(100vh-4rem)]">
         <Sidebar 
           activeSection={activeSection} 
           onSectionChange={setActiveSection} 
           userRole={currentUser.role}
+          isMobile={isMobile}
+          isOpen={isMobileMenuOpen}
+          onClose={() => setIsMobileMenuOpen(false)}
         />
-        <main className="flex-1 p-6 overflow-auto">
+        <main className={cn(
+          "flex-1 overflow-auto transition-all duration-300",
+          isMobile ? "p-4" : "p-6"
+        )}>
           {renderContent()}
         </main>
       </div>

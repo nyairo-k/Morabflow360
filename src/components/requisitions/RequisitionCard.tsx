@@ -7,13 +7,36 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { FileText, Calendar, User, Building, DollarSign, Package, Upload, CheckCircle, Eye, AlertTriangle, XCircle } from "lucide-react";
-import { Requisition, User as UserType } from "@/types/requisition";
+import { User as UserType } from "@/types/requisition";
 import { useState } from "react";
 import { cn } from "@/lib/utils"; // For dynamic styling
+import { cfg } from "@/lib/config";
+// Note: Local StatusBadge component is defined below
 
-// The props interface is correct
+// Local UI requisition shape used by this component
+interface UIRequisition {
+  id: string;
+  totalAmount: number;
+  items: any[] | string;
+  supplierName?: string;
+  expenseCategory?: string;
+  createdBy: string;
+  createdDate: string;
+  approvalStatus: 'Pending Approval' | 'Approved' | 'Rejected';
+  paymentStatus: 'Unpaid' | 'Paid';
+  receiptStatus?: 'Pending' | 'Received';
+  approvedBy?: string;
+  approvalDate?: string;
+  paidBy?: string;
+  paymentDate?: string;
+  receivedBy?: string;
+  receivedDate?: string;
+  receiptUrl?: string;
+  paymentDetails?: any;
+}
+
 interface RequisitionCardProps {
-  requisition: Requisition;
+  requisition: UIRequisition;
   currentUser: UserType;
   onAction: (action: string, data: any) => void;
 }
@@ -23,10 +46,12 @@ const StatusBadge = ({ status }: { status: string }) => {
   const statusStyles = {
     'Pending Approval': 'bg-yellow-100 text-yellow-800 border-yellow-300',
     'Approved': 'bg-blue-100 text-blue-800 border-blue-300',
+    'Unpaid': 'bg-orange-100 text-orange-800 border-orange-300',
+    'Paid-Awaiting Receipt': 'bg-emerald-50 text-emerald-800 border-emerald-300',
     'Paid': 'bg-green-100 text-green-800 border-green-300',
     'Received': 'bg-gray-100 text-gray-800 border-gray-300',
     'Rejected': 'bg-red-100 text-red-800 border-red-300',
-  };
+  } as Record<string, string>;
   return <Badge variant="outline" className={cn("font-semibold", statusStyles[status])}>{status}</Badge>;
 };
 
@@ -37,42 +62,169 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
     recipientName: '',
     amountPaid: requisition.totalAmount, // Pre-fill with the total amount
     mpesaCode: '',
-    transactionCost: '',
+    transactionCost: 0,
   });
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receivedItemsNotes, setReceivedItemsNotes] = useState('');
    const [receivedByName, setReceivedByName] = useState('');
 
+  // ----- Download PDF (inline) like Purchase Orders -----
+  const ensureHtml2PdfLoaded = async (): Promise<void> => {
+    if (typeof window === 'undefined') return;
+    if ((window as any).html2pdf) return;
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load html2pdf.js'));
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleDownloadPdf = async () => {
+    try {
+      await ensureHtml2PdfLoaded();
+      const items = (typeof requisition.items === 'string' && requisition.items) ? JSON.parse(requisition.items) : requisition.items || [];
+
+      const container = document.createElement('div');
+      container.style.width = '210mm';
+      container.style.padding = '12mm';
+      container.style.background = '#fff';
+      container.style.color = '#000';
+      const rows = items.map((it: any) => {
+        const qty = Number(it.quantity || 0);
+        const price = Number(it.unitPrice || 0);
+        const total = (qty * price).toLocaleString();
+        const name = it.productName || it.name || '-';
+        const desc = it.description ? ` - ${it.description}` : '';
+        return `<tr><td style="padding:6px;border-bottom:1px solid #f2f2f2">${name}${desc}</td><td style="text-align:right;padding:6px;border-bottom:1px solid #f2f2f2">${qty}</td><td style="text-align:right;padding:6px;border-bottom:1px solid #f2f2f2">${price.toLocaleString()}</td><td style="text-align:right;padding:6px;border-bottom:1px solid #f2f2f2">${total}</td></tr>`;
+      }).join('');
+
+      const totalAmount = Number(requisition.totalAmount || 0).toLocaleString();
+
+      container.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ddd;padding-bottom:8px">
+          <div><h2 style="margin:0;font-family:ui-sans-serif,system-ui">Requisition</h2><small style="color:#666">Generated ${new Date().toLocaleString()}</small></div>
+          <img src="/logo.png" alt="Company" style="height:40px"/>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px">
+          <div>
+            <div><strong>Requested By:</strong> ${requisition.createdBy || '-'}</div>
+            <div><strong>Supplier:</strong> ${requisition.supplierName || '-'}</div>
+          </div>
+          <div style="text-align:right">
+            <div><strong>Requisition ID:</strong> ${requisition.id}</div>
+            <div><strong>Date:</strong> ${requisition.createdDate ? new Date(requisition.createdDate).toLocaleDateString() : new Date().toLocaleDateString()}</div>
+            <div><strong>Status:</strong> ${requisition.approvalStatus || 'Pending Approval'}</div>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin-top:12px;font-family:ui-sans-serif,system-ui">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">Item</th>
+              <th style="text-align:right;padding:6px;border-bottom:1px solid #eee">Qty</th>
+              <th style="text-align:right;padding:6px;border-bottom:1px solid #eee">Unit</th>
+              <th style="text-align:right;padding:6px;border-bottom:1px solid #eee">Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" style="text-align:right;padding:6px"><strong>Total</strong></td>
+              <td style="text-align:right;padding:6px"><strong>${totalAmount}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
+          <div><div><strong>Requested By</strong></div><div style="height:64px;border-bottom:1px solid #000"></div><small>Signature / Date</small></div>
+          <div><div><strong>Approved By</strong></div><div style="height:64px;border-bottom:1px solid #000"></div><small>Signature / Date</small></div>
+        </div>
+      `;
+
+      const opt = {
+        margin: 0,
+        filename: `${requisition.id || 'requisition'}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      } as any;
+
+      (window as any).html2pdf().set(opt).from(container).save();
+    } catch {
+      // Silent failure to avoid blocking the UI
+    }
+  };
+
   // Role-based logic to determine which action is available
   const canApprove = currentUser.role === 'Admin' && requisition.approvalStatus === 'Pending Approval';
   const canPay = currentUser.role === 'Disbursements' && requisition.approvalStatus === 'Approved' && requisition.paymentStatus === 'Unpaid';
-  const canReceive = currentUser.role === 'InventoryStaff' && requisition.paymentStatus === 'Paid';
+
+  // FIX: Remove the duplicate canReceive declaration and keep only the correct one
+  const canReceive = (currentUser.role === 'InventoryStaff' || currentUser.role === 'Sales') && requisition.paymentStatus === 'Paid' && requisition.receiptStatus !== 'Received';
+
+  // Status order: Pending Approval -> Rejected/Approved -> Paid-Awaiting Receipt -> Received
+  const getStatusBadge = (requisition: UIRequisition) => {
+    if (requisition.approvalStatus === 'Rejected') return <StatusBadge status="Rejected" />;
+    if (requisition.receiptStatus === 'Received') return <StatusBadge status="Received" />;
+    if (requisition.paymentStatus === 'Paid') return <StatusBadge status="Paid-Awaiting Receipt" />;
+    if (requisition.approvalStatus === 'Approved') return <StatusBadge status="Approved" />;
+    return <StatusBadge status="Pending Approval" />;
+  };
 
   // Handlers now call the onAction prop with structured data
   const handleApprove = () => onAction('approve', { requisitionId: requisition.id, approvedBy: currentUser.name });
   const handleReject = () => onAction('reject', { requisitionId: requisition.id, rejectedBy: currentUser.name });
   const handlePaySubmit = () => {
-    onAction('pay', {
-      requisitionId: requisition.id,
-      paidBy: currentUser.name,
-      paymentDetails: paymentDetails,
+    if (!paymentDetails.recipientName || !paymentDetails.amountPaid || !paymentDetails.mpesaCode) {
+      toast.error('Please fill in all required payment fields.');
+      return;
+    }
+    if (!paymentProofFile) {
+      toast.error('Payment proof image is required.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('receiptFile', paymentProofFile);
+    formData.append('requisitionId', requisition.id);
+
+    const backendUrl = `${cfg.apiBase}/upload-requisition-receipt`;
+
+    const promise = fetch(backendUrl, { method: 'POST', body: formData })
+      .then(async (res) => {
+        const text = await res.text();
+        if (!res.ok) {
+          throw new Error(text || 'Payment proof upload failed');
+        }
+        let data: any;
+        try { data = JSON.parse(text); } catch { throw new Error('Server did not return JSON'); }
+        return data;
+      })
+      .then((data) => {
+        return onAction('pay', {
+          requisitionId: requisition.id,
+          paidBy: currentUser.name,
+          paymentDetails: { ...paymentDetails, proofUrl: data.url },
+        });
+      });
+
+    toast.promise(promise, {
+      loading: 'Uploading payment proof and logging payment...',
+      success: 'Payment logged successfully!',
+      error: (err) => `Error: ${err.message}`,
     });
   };
  const handleReceiveSubmit = () => {
-    // SCENARIO 1: The user did NOT select a file.
-    // We will just update the Google Sheet with the notes and receivedBy info.
+    // Enforce required fields
+    if (!receivedByName) {
+      toast.error('Please enter the name of the receiver.');
+      return;
+    }
     if (!receiptFile) {
-      console.log("No receipt file selected. Updating notes and status only.");
-      // We call onAction directly to the Apps Script.
-      // We don't need toast.promise here because this is a very fast operation.
-      onAction('receive', {
-        requisitionId: requisition.id,
-        receivedBy: receivedByName,
-        receivedItemsNotes: receivedItemsNotes,
-        receiptUrl: '', // Send an empty URL
-      });
-      toast.success("Requisition marked as received (no receipt).");
-      return; // Stop the function here.
+      toast.error('Receipt image/file is required to confirm receipt.');
+      return;
     }
 
     // SCENARIO 2: The user DID select a file.
@@ -84,7 +236,7 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
     formData.append("requisitionId", requisition.id);
 
     // 2) Call Node server (robust parse to avoid '<!DOCTYPE' JSON crash)
-    const backendUrl = "http://localhost:4000/upload-requisition-receipt";
+    const backendUrl = `${cfg.apiBase}/upload-requisition-receipt`;
 
     const promise = fetch(backendUrl, { method: "POST", body: formData })
       .then(async (res) => {
@@ -121,13 +273,13 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
             <FileText className="h-5 w-5 text-primary" />
             {requisition.id}
           </CardTitle>
-          <StatusBadge status={requisition.approvalStatus === 'Approved' ? requisition.paymentStatus : requisition.approvalStatus} />
+          {getStatusBadge(requisition)}
         </div>
       </CardHeader>
       
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-          <InfoItem icon={Building} label="Department" value={<Badge variant="secondary">{requisition.department}</Badge>} />
+          <InfoItem icon={Building} label="Expense Category" value={<Badge variant="secondary">{requisition.expenseCategory}</Badge>} />
           <InfoItem icon={User} label="Requested by" value={requisition.createdBy} />
           <InfoItem icon={Calendar} label="Date" value={new Date(requisition.createdDate).toLocaleDateString()} />
           <InfoItem icon={DollarSign} label="Total Amount" value={<span className="font-bold text-lg">Ksh {Number(requisition.totalAmount).toLocaleString()}</span>} />
@@ -163,6 +315,12 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
             <Eye className="h-4 w-4 mr-2" />
             View Items ({itemsArray.length})
           </Button>
+
+          {/* Download Requisition as PDF */}
+          <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
+            <FileText className="h-4 w-4 mr-2" />
+            Download PDF
+          </Button>
           
           {/* Admin Actions */}
           {canApprove && (
@@ -180,9 +338,13 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
                 <DialogHeader><DialogTitle>Log Payment for {requisition.id}</DialogTitle></DialogHeader>
                 <div className="space-y-4 py-4">
                   <InfoItem icon={User} label="Recipient Name" value={<Input value={paymentDetails.recipientName} onChange={(e) => setPaymentDetails({...paymentDetails, recipientName: e.target.value})} />} />
-                  <InfoItem icon={DollarSign} label="Amount Paid" value={<Input type="number" value={paymentDetails.amountPaid} onChange={(e) => setPaymentDetails({...paymentDetails, amountPaid: e.target.value})} />} />
+                  <InfoItem icon={DollarSign} label="Amount Paid" value={<Input type="number" value={paymentDetails.amountPaid} onChange={(e) => setPaymentDetails({...paymentDetails, amountPaid: Number(e.target.value) || 0})} />} />
                   <InfoItem icon={FileText} label="Mpesa Code" value={<Input value={paymentDetails.mpesaCode} onChange={(e) => setPaymentDetails({...paymentDetails, mpesaCode: e.target.value})} />} />
-                  <InfoItem icon={DollarSign} label="Transaction Cost" value={<Input type="number" value={paymentDetails.transactionCost} onChange={(e) => setPaymentDetails({...paymentDetails, transactionCost: e.target.value})} />} />
+                  <InfoItem icon={DollarSign} label="Transaction Cost" value={<Input type="number" value={paymentDetails.transactionCost} onChange={(e) => setPaymentDetails({...paymentDetails, transactionCost: Number(e.target.value) || 0})} />} />
+                  <div className="space-y-2">
+                    <Label>Upload Payment Proof (Image) *</Label>
+                    <Input type="file" accept=".png,.jpg,.jpeg" onChange={(e) => setPaymentProofFile(e.target.files?.[0] || null)} />
+                  </div>
                 </div>
                 <DialogFooter>
                   <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
@@ -220,8 +382,8 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
                       <Textarea value={receivedItemsNotes} onChange={(e) => setReceivedItemsNotes(e.target.value)} placeholder="Were all items received as requested? Add any notes here..." />
                     </div>
                     <div className="space-y-2">
-                      <Label>Upload Receipt</Label>
-                      <Input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)} />
+                      <Label>Upload Receipt *</Label>
+                      <Input type="file" accept=".png,.jpg,.jpeg,.pdf" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)} />
                     </div>
                  </div>
                  <DialogFooter>
@@ -230,6 +392,14 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
                  </DialogFooter>
               </DialogContent>
             </Dialog>
+          )}
+
+          {/* Show Received status if already received */}
+          {requisition.receiptStatus === 'Received' && (
+            <Button disabled className="bg-green-600 text-white" size="sm">
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Received
+            </Button>
           )}
         </div> {/* <-- THIS IS THE CORRECTED PLACEMENT of the closing div tag */}
         

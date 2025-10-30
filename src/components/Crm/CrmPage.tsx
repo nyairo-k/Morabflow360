@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Switch } from "@/components/ui/switch";
 import { Users, PlusCircle, Loader2, Search, Building, UserCheck } from "lucide-react";
 import { toast } from "sonner";
+import { cfg } from "@/lib/config";
 
 // Define the types for the props this component now receives
 interface Client {
@@ -108,7 +109,7 @@ function AddNewClientDialog({ currentUser, onClientAdded }: AddNewClientDialogPr
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSaving(true);
-        const CRM_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyVaApUc7-Prj7w5ETFIe8yCtKBoq-bTnvlOksVWAwZWvUkoX__Zg5oFOu2x8uBJYfj/exec"; // <-- Your URL is preserved
+        const CRM_SCRIPT_URL = cfg.crmScript; // from env
 
         try {
             const response = await fetch(CRM_SCRIPT_URL, {
@@ -148,7 +149,7 @@ function AddNewClientDialog({ currentUser, onClientAdded }: AddNewClientDialogPr
                     {/* ... form inputs are unchanged ... */}
                     <div className="space-y-2"><Label htmlFor="clientName">Client Name *</Label><Input id="clientName" value={clientName} onChange={e => setClientName(e.target.value)} required /></div>
                     <div className="space-y-2"><Label htmlFor="contactPerson">Contact Person</Label><Input id="contactPerson" value={contactPerson} onChange={e => setContactPerson(e.target.value)} /></div>
-                    <div className="space-y-2"><Label htmlFor="phoneNumber">Phone Number</Label><Input id="phoneNumber" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} /></div>
+                    <div className="space-y-2"><Label htmlFor="phoneNumber">Phone Number</Label><Input id="phoneNumber" type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" pattern="[0-9]{10}" maxLength={10} /></div>
                     <div className="space-y-2"><Label htmlFor="email">Email Address</Label><Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} /></div>
                     <div className="space-y-2"><Label htmlFor="region">Region</Label><Input id="region" value={region} onChange={e => setRegion(e.target.value)} /></div>
                     <DialogFooter>

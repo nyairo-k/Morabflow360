@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FileText, PlusCircle, Send, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { isTenDigitPhone, normalizeTenDigitPhone } from "@/lib/utils";
 
 // This defines what data the form needs to send up to the main Index.tsx page
 interface QuotationFormProps {
@@ -67,10 +68,20 @@ export function QuotationForm({ onSubmit }: QuotationFormProps) {
     e.preventDefault();
     setIsSaving(true); // Start loading
 
+    // Validate phone: required and exactly 10 digits
+    const normalizedPhone = normalizeTenDigitPhone(customerPhone);
+    if (!isTenDigitPhone(customerPhone)) {
+      setIsSaving(false);
+      toast.error("Invalid phone number", {
+        description: "Phone number must have exactly 10 digits.",
+      });
+      return;
+    }
+
     const quotation = {
         id: `QT-${Date.now()}`,
         clientName: clientName,
-        customerPhone: customerPhone,
+        customerPhone: normalizedPhone,
         items: items,
         totalAmount: totalAmount,
         status: "Pending",
@@ -114,8 +125,18 @@ export function QuotationForm({ onSubmit }: QuotationFormProps) {
 
             {/* This is the new field, added for consistency */}
             <div className="space-y-2">
-              <Label htmlFor="customerPhone">Customer Phone</Label>
-              <Input id="customerPhone" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="+2547..." />
+              <Label htmlFor="customerPhone">Customer Phone *</Label>
+              <Input
+                id="customerPhone"
+                type="tel"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                placeholder="07XXXXXXXX"
+                inputMode="numeric"
+                pattern="[0-9]{10}"
+                maxLength={10}
+                required
+              />
             </div>
           </div>
           {/* ============================= */}

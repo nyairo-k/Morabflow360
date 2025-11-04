@@ -1,8 +1,5 @@
-# Welcome to your Lovable project
+# Welcome to MORAB 360 PROJECT
 
-## Project info
-
-**URL**: https://lovable.dev/projects/c1b60891-c0b0-4eee-841f-35b53fcc6390
 
 ## How can I edit this code?
 

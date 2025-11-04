@@ -21,6 +21,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create .env.staging from repo secrets
+        run: |
+          cat > .env.staging << 'EOF'
+          VITE_API_BASE=${{ secrets.STAGING_VITE_API_BASE }}
+          VITE_REQUISITIONS_SCRIPT=${{ secrets.STAGING_VITE_REQUISITIONS_SCRIPT }}
+          VITE_INVENTORY_SCRIPT=${{ secrets.STAGING_VITE_INVENTORY_SCRIPT }}
+          VITE_GOOGLE_SCRIPT=${{ secrets.STAGING_VITE_GOOGLE_SCRIPT }}
+          VITE_CRM_SCRIPT=${{ secrets.STAGING_VITE_CRM_SCRIPT }}
+          EOF
+
       - name: Build for staging
         run: npm run build:staging
 
@@ -30,9 +40,9 @@ jobs:
       - name: Deploy to Hostinger staging
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
+          server: ${{ secrets.FTP_STAGING_SERVER }}
+          username: ${{ secrets.FTP_STAGING_USERNAME }}
+          password: ${{ secrets.FTP_STAGING_PASSWORD }}
           local-dir: dist/
-          server-dir: ${{ secrets.FTP_STAGING_DIR }}
+          server-dir: /
           dangerous-clean-slate: true

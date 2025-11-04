@@ -21,6 +21,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create .env.production from repo secrets
+        run: |
+          cat > .env.production << 'EOF'
+          VITE_API_BASE=${{ secrets.PROD_VITE_API_BASE }}
+          VITE_REQUISITIONS_SCRIPT=${{ secrets.PROD_VITE_REQUISITIONS_SCRIPT }}
+          VITE_INVENTORY_SCRIPT=${{ secrets.PROD_VITE_INVENTORY_SCRIPT }}
+          VITE_GOOGLE_SCRIPT=${{ secrets.PROD_VITE_GOOGLE_SCRIPT }}
+          VITE_CRM_SCRIPT=${{ secrets.PROD_VITE_CRM_SCRIPT }}
+          EOF
+
       - name: Build for production
         run: npm run build:prod
 
@@ -30,9 +40,9 @@ jobs:
       - name: Deploy to Hostinger production
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
+          server: ${{ secrets.FTP_PROD_SERVER }}
+          username: ${{ secrets.FTP_PROD_USERNAME }}
+          password: ${{ secrets.FTP_PROD_PASSWORD }}
           local-dir: dist/
-          server-dir: ${{ secrets.FTP_PROD_DIR }}
+          server-dir: /
           dangerous-clean-slate: true

@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, ChevronDown, ChevronRight, Download, FileText, RefreshCw } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Check, ChevronDown, ChevronRight, Download, FileText, RefreshCw, Search, Phone } from "lucide-react";
 import { usePagination } from "@/hooks/use-pagination";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 
@@ -15,6 +16,7 @@ interface QuotationsListProps {
 
 export function QuotationsList({ quotations, onApprove, onRefresh }: QuotationsListProps) {
   const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const handleToggleExpand = (quoteId: string) => {
     setExpandedQuoteId(prevId => (prevId === quoteId ? null : quoteId));
@@ -34,11 +36,36 @@ export function QuotationsList({ quotations, onApprove, onRefresh }: QuotationsL
     return [];
   };
 
-  const { page, totalPages, setPage, slice } = usePagination({ totalItems: quotations?.length || 0, initialPage: 1, initialPageSize: 10 });
+  // Filter quotations based on search term
+  const filteredQuotations = useMemo(() => {
+    if (!searchTerm.trim()) return quotations || [];
+    
+    const term = searchTerm.toLowerCase();
+    return (quotations || []).filter(quote => {
+      // Search in ID
+      const matchesId = (quote.id || '').toLowerCase().includes(term);
+      // Search in client name
+      const matchesClient = (quote.clientName || '').toLowerCase().includes(term);
+      // Search in product names from items
+      const items = getItemsArray(quote);
+      const matchesProducts = items.some((item: any) => 
+        (item.productName || '').toLowerCase().includes(term)
+      );
+      
+      return matchesId || matchesClient || matchesProducts;
+    });
+  }, [quotations, searchTerm]);
+
+  const { page, totalPages, setPage, slice } = usePagination({ 
+    totalItems: filteredQuotations.length, 
+    initialPage: 1, 
+    initialPageSize: 10 
+  });
+  
   const paginatedQuotations = useMemo(() => {
     const [start, end] = slice;
-    return (quotations || []).slice(start, end);
-  }, [quotations, slice]);
+    return filteredQuotations.slice(start, end);
+  }, [filteredQuotations, slice]);
 
   return (
     <Card>
@@ -62,6 +89,24 @@ export function QuotationsList({ quotations, onApprove, onRefresh }: QuotationsL
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {/* Search Input */}
+        <div className="mb-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by Quote ID, Client, or Product..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          {searchTerm && (
+            <p className="text-sm text-muted-foreground mt-2">
+              Found {filteredQuotations.length} result{filteredQuotations.length !== 1 ? 's' : ''}
+            </p>
+          )}
+        </div>
+
         <Table>
           <TableHeader>
             <TableRow>
@@ -84,7 +129,15 @@ export function QuotationsList({ quotations, onApprove, onRefresh }: QuotationsL
                     </Button>
                   </TableCell>
                   <TableCell className="font-medium">{quote.id}</TableCell>
-                  <TableCell>{quote.clientName}</TableCell>
+                  <TableCell>
+                    {quote.clientName}
+                    {quote.customerPhone && (
+                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        <Phone className="h-3 w-3" />
+                        {quote.customerPhone}
+                      </p>
+                    )}
+                  </TableCell>
                   <TableCell>ksh{quote.totalAmount}</TableCell>
                   <TableCell><Badge variant="outline">{quote.status}</Badge></TableCell>
                   <TableCell>{new Date(quote.submittedDate).toLocaleDateString()}</TableCell>

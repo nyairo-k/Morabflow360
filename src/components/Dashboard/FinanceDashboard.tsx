@@ -59,25 +59,82 @@ export function FinanceDashboard({ invoices, payments }: FinanceDashboardProps) 
     return true;
   });
 
-  // CALCULATE METRICS FROM FILTERED PAYMENT DATA
-  const totalRevenue = filteredPayments.reduce((sum, payment) => {
-    const amountPaid = parseFloat(payment.amountPaid || 0);
-    const balance = parseFloat(payment.balance || 0);
-    return sum + amountPaid + balance;
+  // CALCULATE METRICS FROM FILTERED INVOICE DATA
+  // Total Revenue = Sum of all invoice totalAmount values in the filtered period
+  const totalRevenue = filteredInvoices.reduce((sum, invoice) => {
+    return sum + parseFloat(invoice.totalAmount || 0);
   }, 0);
 
+  // Collected Revenue = Sum of payments made within the selected period (filtered by payment date)
   const collectedRevenue = filteredPayments.reduce((sum, payment) => {
     return sum + parseFloat(payment.amountPaid || 0);
   }, 0);
 
-  const outstandingAmount = filteredPayments.reduce((sum, payment) => {
-    return sum + parseFloat(payment.balance || 0);
-  }, 0);
+  // CALCULATE OUTSTANDING AMOUNT:
+  // 1. Sum of totalAmount for unpaid invoices
+  // 2. Plus sum of balance from payments sheet for selected period (for partially paid invoices)
+  const outstandingAmount = (() => {
+    let unpaidInvoicesTotal = 0;
+    let partiallyPaidBalancesTotal = 0;
 
-  // COUNT PAYMENT STATUSES FROM FILTERED PAYMENT DATA
-  const paidCount = filteredPayments.filter(p => p.paymentStatus === "Paid").length;
-  const partiallyPaidCount = filteredPayments.filter(p => p.paymentStatus === "Partially Paid").length;
-  const unpaidCount = filteredPayments.filter(p => p.paymentStatus === "Unpaid").length;
+    filteredInvoices.forEach(invoice => {
+      // Find all payments for this invoice
+      const relatedPayments = payments.filter(p => p.invoiceId === invoice.id);
+      
+      if (relatedPayments.length === 0) {
+        // Unpaid invoice: add its totalAmount
+        unpaidInvoicesTotal += parseFloat(invoice.totalAmount || 0);
+      } else {
+        // Partially paid invoice: get balance from latest payment in selected period
+        const paymentsInPeriod = relatedPayments.filter(payment => {
+          if (!startDate && !endDate) return true;
+          const paymentDate = new Date(payment.paymentDate);
+          if (startDate && endDate) {
+            return paymentDate >= startDate && paymentDate <= endDate;
+          } else if (startDate) {
+            return paymentDate >= startDate;
+          } else if (endDate) {
+            return paymentDate <= endDate;
+          }
+          return true;
+        });
+
+        if (paymentsInPeriod.length > 0) {
+          // Get the latest payment's balance (most recent payment)
+          const latestPayment = paymentsInPeriod.sort((a, b) => 
+            new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
+          )[0];
+          partiallyPaidBalancesTotal += parseFloat(latestPayment.balance || 0);
+        } else {
+          // If no payments in period, calculate outstanding manually
+          const totalPaid = relatedPayments.reduce((sum, p) => sum + parseFloat(p.amountPaid || 0), 0);
+          const invoiceOutstanding = parseFloat(invoice.totalAmount || 0) - totalPaid;
+          if (invoiceOutstanding > 0) {
+            partiallyPaidBalancesTotal += invoiceOutstanding;
+          }
+        }
+      }
+    });
+
+    return unpaidInvoicesTotal + partiallyPaidBalancesTotal;
+  })();
+
+  // COUNT PAYMENT STATUSES FROM FILTERED INVOICE DATA (not payments)
+  // Calculate payment status for each invoice and count them
+  const invoicesWithPaymentStatus = filteredInvoices.map(invoice => {
+    const relatedPayments = payments.filter(p => p.invoiceId === invoice.id);
+    const totalPaid = relatedPayments.reduce((sum, p) => sum + Number(p.amountPaid || 0), 0);
+    const totalAmount = Number(invoice.totalAmount);
+    let paymentStatus = 'Unpaid';
+    if (totalPaid > 0 && totalAmount > 0) {
+      paymentStatus = totalPaid >= totalAmount ? 'Paid' : 'Partially Paid';
+    }
+    return { ...invoice, paymentStatus };
+  });
+
+  const paidCount = invoicesWithPaymentStatus.filter(i => i.paymentStatus === "Paid").length;
+  const partiallyPaidCount = invoicesWithPaymentStatus.filter(i => i.paymentStatus === "Partially Paid").length;
+  const unpaidCount = invoicesWithPaymentStatus.filter(i => i.paymentStatus === "Unpaid").length;
 
   // EXISTING INVOICE METRICS (FILTERED)
   const totalInvoices = filteredInvoices.length;
@@ -292,19 +349,19 @@ export function FinanceDashboard({ invoices, payments }: FinanceDashboardProps) 
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Paid</span>
                 <span className="text-sm text-muted-foreground">
-                  {paidCount} payments
+                  {paidCount} invoices
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Partially Paid</span>
                 <span className="text-sm text-muted-foreground">
-                  {partiallyPaidCount} payments
+                  {partiallyPaidCount} invoices
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Unpaid</span>
                 <span className="text-sm text-muted-foreground">
-                  {unpaidCount} payments
+                  {unpaidCount} invoices
                 </span>
               </div>
             </div>

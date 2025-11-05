@@ -17,12 +17,14 @@ interface OutsourcedItemsHubProps {
   purchaseOrders: PurchaseOrder[];
   onAction: (action: string, data: any) => void;
   currentUser: User;
+  searchTerm?: string; // Add search term prop
 }
 
 export function OutsourcedItemsHub({ 
   purchaseOrders = [], 
   onAction, 
-  currentUser 
+  currentUser,
+  searchTerm = '' // Add search term with default
 }: OutsourcedItemsHubProps) {
 
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
@@ -92,6 +94,21 @@ export function OutsourcedItemsHub({
     po.sellingPrice !== undefined
   );
 
+  // Filter purchase orders based on search term
+  const filteredPurchaseOrders = useMemo(() => {
+    if (!searchTerm.trim()) return validPurchaseOrders;
+    
+    const term = searchTerm.toLowerCase();
+    return validPurchaseOrders.filter(po => {
+      const matchesPoId = (po.poId || '').toLowerCase().includes(term);
+      const matchesSupplier = (po.supplierName || '').toLowerCase().includes(term);
+      const matchesProduct = (po.productName || '').toLowerCase().includes(term);
+      const matchesInvoiceId = (po.relatedInvoiceId || '').toLowerCase().includes(term);
+      
+      return matchesPoId || matchesSupplier || matchesProduct || matchesInvoiceId;
+    });
+  }, [validPurchaseOrders, searchTerm]);
+
   console.log('=== DEBUGGING PURCHASE ORDERS ===');
   console.log('Raw purchaseOrders from Google Sheets:', purchaseOrders);
   validPurchaseOrders.forEach((po, index) => {
@@ -124,6 +141,13 @@ export function OutsourcedItemsHub({
           <p className="text-muted-foreground">Manage supplier purchases and payments</p>
         </div>
       </div>
+
+      {/* Show search results count if searching */}
+      {searchTerm && (
+        <p className="text-sm text-muted-foreground">
+          Found {filteredPurchaseOrders.length} result{filteredPurchaseOrders.length !== 1 ? 's' : ''}
+        </p>
+      )}
 
       {/* Summary Cards now use live, calculated data */}
       <div className="grid gap-4 md:grid-cols-4">
@@ -175,15 +199,19 @@ export function OutsourcedItemsHub({
 
       {/* FIX: Show the actual purchase orders with improved UI design */}
       {(() => {
-        const { page, totalPages, setPage, slice } = usePagination({ totalItems: validPurchaseOrders.length, initialPage: 1, initialPageSize: 10 });
+        const { page, totalPages, setPage, slice } = usePagination({ 
+          totalItems: filteredPurchaseOrders.length, // Use filteredPurchaseOrders instead of validPurchaseOrders
+          initialPage: 1, 
+          initialPageSize: 10 
+        });
         const paginatedPOs = useMemo(() => {
           const [start, end] = slice;
-          return validPurchaseOrders.slice(start, end);
-        }, [validPurchaseOrders, slice]);
+          return filteredPurchaseOrders.slice(start, end); // Use filteredPurchaseOrders
+        }, [filteredPurchaseOrders, slice]);
         return (
       <div className="space-y-4">
         <h3 className="text-lg font-semibold">Purchase Orders</h3>
-        {validPurchaseOrders.length === 0 ? (
+        {filteredPurchaseOrders.length === 0 ? (
           <Card className="text-center py-8">
             <CardContent>
               <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />

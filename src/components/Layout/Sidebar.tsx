@@ -34,14 +34,14 @@ export function Sidebar({
     { id: "dashboard", label: "Dashboard", icon: Home, roles: ["Sales", "Finance", "Admin", "InventoryStaff", "Disbursements"] },
     
     { id: "crm", label: "CRM", icon: Users, roles: ["Sales", "Admin"] },
-    { id: "sales-quotes", label: "Quotations", icon: FileText, roles: ["Sales", "Admin"] },
-    { id: "sales-invoices", label: "Invoice Requests", icon: Receipt, roles: ["Sales", "Admin"] },
+    { id: "sales-quotes", label: "Quotations", icon: FileText, roles: ["Sales", "Admin", "InventoryStaff", "Disbursements"] },
+    { id: "sales-invoices", label: "Invoice Requests", icon: Receipt, roles: ["Sales", "Admin", "InventoryStaff", "Disbursements"] },
     
     // MODIFIED: Replaced 'Inventory' with 'InventoryStaff' for clarity and added 'Disbursements'
     { id: "requisitions", label: "Requisitions", icon: ClipboardList, roles: ["Sales", "Finance", "Admin", "InventoryStaff", "Disbursements"] },
     
     // MODIFIED: Replaced 'Inventory' with 'InventoryStaff'
-    { id: "inventory", label: "Inventory", icon: Warehouse, roles: ["InventoryStaff", "Admin", "Disbursements"] },
+    { id: "inventory", label: "Inventory", icon: Warehouse, roles: ["InventoryStaff", "Admin", "Disbursements", "Sales", "Finance"] },
 
     { id: "accounts-payables", label: "Accounts Payables", icon: BarChart3, roles: ["Finance", "Admin"] },
     { id: "finance-pending", label: "Pending Invoices", icon: Receipt, roles: ["Finance", "Admin"] },

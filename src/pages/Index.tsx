@@ -75,7 +75,12 @@ const Index = () => {
 
 const invoicesForFulfillment = useMemo(() => {
     // Filter for invoices that are ready for dispatch
-    const fulfillableInvoices = invoices.filter(inv => inv.status === 'Uploaded');
+    let fulfillableInvoices = invoices.filter(inv => inv.status === 'Uploaded');
+    
+    // Filter by requester for Sales, Finance, and Disbursements roles
+    if (currentUser && (currentUser.role === "Sales" || currentUser.role === "Finance" || currentUser.role === "Disbursements")) {
+      fulfillableInvoices = fulfillableInvoices.filter(inv => inv.requester === currentUser.name);
+    }
 
     // Transform them into the structure that FulfillmentCenter expects
     return fulfillableInvoices.map(inv => {
@@ -100,7 +105,7 @@ const invoicesForFulfillment = useMemo(() => {
         }))
       };
     });
-  }, [invoices]); 
+  }, [invoices, currentUser]); 
 
 
 
@@ -117,8 +122,9 @@ const invoicesForFulfillment = useMemo(() => {
       // CHANGE: Only filter for Sales users, Finance and Admin see all data
       const url = new URL(GOOGLE_SCRIPT_URL);
       
-      // Only add requester filter for Sales role
-      if (currentUser.role === "Sales") {
+      // Only add requester filter for Sales, InventoryStaff, and Disbursements roles
+      // Finance and Admin see all data
+      if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff" || currentUser.role === "Disbursements") {
         url.searchParams.append('requester', currentUser.name);
       }
       
@@ -153,6 +159,28 @@ const invoicesForFulfillment = useMemo(() => {
         let imageUrl = '';
 
         try {
+            // ====== ADD VALIDATION BEFORE PROCESSING ======
+            // Find the invoice
+            const invoice = invoices.find(inv => inv.id === paymentData.invoiceId);
+            if (!invoice) {
+                throw new Error("Invoice not found.");
+            }
+            
+            // Calculate existing payments and outstanding balance
+            const relatedPayments = payments.filter(p => p.invoiceId === paymentData.invoiceId);
+            const existingTotalPaid = relatedPayments.reduce((sum, p) => sum + Number(p.amountPaid || 0), 0);
+            const invoiceTotal = Number(invoice.totalAmount || 0);
+            const outstandingBalance = invoiceTotal - existingTotalPaid;
+            const newPaymentAmount = Number(paymentData.amountPaid || 0);
+            
+            // Validate: payment cannot exceed outstanding balance
+            if (newPaymentAmount > outstandingBalance) {
+                throw new Error(
+                    `Payment amount (Ksh ${newPaymentAmount.toLocaleString()}) exceeds outstanding balance (Ksh ${outstandingBalance.toLocaleString()}). Maximum allowed: Ksh ${outstandingBalance.toLocaleString()}`
+                );
+            }
+            // ====== END OF VALIDATION ======
+            
             // STEP 1: UPLOAD THE IMAGE to the Node.js server if it exists
             if (imageFile) {
                 const formData = new FormData();
@@ -173,16 +201,13 @@ const invoicesForFulfillment = useMemo(() => {
             }
 
             // STEP 2: Calculate payment status and balance
-            const relatedPayments = payments.filter(p => p.invoiceId === paymentData.invoiceId);
-            const totalPaid = relatedPayments.reduce((sum, p) => sum + Number(p.amountPaid || 0), 0) + Number(paymentData.amountPaid);
-            const totalAmount = Number(invoices.find(inv => inv.id === paymentData.invoiceId)?.totalAmount || 0);
-            
+            const totalPaid = existingTotalPaid + newPaymentAmount; // Use calculated value
             let paymentStatus = 'Unpaid';
-            let balance = totalAmount;
+            let balance = invoiceTotal; // ✅ Changed from totalAmount to invoiceTotal
             
-            if (totalPaid > 0 && totalAmount > 0) {
-                paymentStatus = totalPaid >= totalAmount ? 'Paid' : 'Partially Paid';
-                balance = totalAmount - totalPaid;
+            if (totalPaid > 0 && invoiceTotal > 0) { // ✅ Changed from totalAmount to invoiceTotal
+                paymentStatus = totalPaid >= invoiceTotal ? 'Paid' : 'Partially Paid'; // ✅ Changed from totalAmount to invoiceTotal
+                balance = invoiceTotal - totalPaid; // ✅ Changed from totalAmount to invoiceTotal
             }
 
             // STEP 3: LOG THE PAYMENT DETAILS with status and balance
@@ -541,8 +566,9 @@ const refreshQuotationData = async () => {
     // CHANGE: Only filter for Sales users, Finance and Admin see all data
     const url = new URL(GOOGLE_SCRIPT_URL);
     
-    // Only add requester filter for Sales role
-    if (currentUser.role === "Sales") {
+    // Only add requester filter for Sales, InventoryStaff, and Disbursements roles
+    // Finance and Admin see all data
+    if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff" || currentUser.role === "Disbursements") {
       url.searchParams.append('requester', currentUser.name);
     }
     
@@ -655,6 +681,20 @@ const renderContent = () => {
       onRefresh={refreshRequisitionData}
     />
   );
+        case "inventory":
+          return (
+            <FulfillmentCenter 
+              currentUser={currentUser}
+              invoices={invoicesForFulfillment}
+              suppliers={suppliers}
+              fieldReps={fieldReps}
+              purchaseOrders={purchaseOrders}
+              dispatchOrders={dispatchOrders}
+              onAction={handleInventoryAction}
+              onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
+              readOnly={true} // Add this
+            />
+          );
         default: return <SalesDashboard quotations={quotations} invoices={invoices} />;
       }
     } 
@@ -699,6 +739,20 @@ const renderContent = () => {
       onRefresh={refreshRequisitionData}
     />
   );
+        case "inventory":
+          return (
+            <FulfillmentCenter 
+              currentUser={currentUser}
+              invoices={invoicesForFulfillment}
+              suppliers={suppliers}
+              fieldReps={fieldReps}
+              purchaseOrders={purchaseOrders}
+              dispatchOrders={dispatchOrders}
+              onAction={handleInventoryAction}
+              onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
+              readOnly={true} // Add this
+            />
+          );
         default: return <FinanceDashboard invoices={invoices} />;
       }
     }
@@ -750,6 +804,7 @@ const renderContent = () => {
       dispatchOrders={dispatchOrders}
       onAction={handleInventoryAction}
       onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
+      readOnly={true} // Add this
     />
   );
             case "reports": return (
@@ -799,6 +854,30 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
                     onRefresh={refreshRequisitionData}
                 />
             );
+        case "sales-quotes": 
+            return (
+                <div className="space-y-6">
+                    <QuotationForm onSubmit={handleQuotationSubmit} />
+                    <QuotationsList 
+                        quotations={quotations} 
+                        onApprove={handleQuotationApprove}
+                        onRefresh={refreshQuotationData}
+                    />
+                </div>
+            );
+        case "sales-invoices": 
+            return (
+                <div className="space-y-6">
+                    <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
+                    <InvoicesList 
+                        invoices={invoices} 
+                        payments={payments}
+                        onLogPayment={handleLogPayment}
+                        currentUser={currentUser}
+                        onRefresh={refreshInvoiceData}
+                    />
+                </div>
+            );
         default: 
             return (
                 <InventoryStaffDashboard
@@ -843,7 +922,30 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
           onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
         />
       );
-
+            case "sales-quotes": 
+                return (
+                    <div className="space-y-6">
+                        <QuotationForm onSubmit={handleQuotationSubmit} />
+                        <QuotationsList 
+                            quotations={quotations} 
+                            onApprove={handleQuotationApprove}
+                            onRefresh={refreshQuotationData}
+                        />
+                    </div>
+                );
+            case "sales-invoices": 
+                return (
+                    <div className="space-y-6">
+                        <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
+                        <InvoicesList 
+                            invoices={invoices} 
+                            payments={payments}
+                            onLogPayment={handleLogPayment}
+                            currentUser={currentUser}
+                            onRefresh={refreshInvoiceData}
+                        />
+                    </div>
+                );
             default: return <DisbursementsDashboard
               currentUser={currentUser}
               requisitions={requisitions}

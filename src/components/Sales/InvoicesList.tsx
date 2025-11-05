@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChevronDown, ChevronRight, ListChecks, Download, DollarSign, History, Eye, RefreshCw, CheckCircle, Clock } from "lucide-react";
+import { ChevronDown, ChevronRight, ListChecks, Download, DollarSign, History, Eye, RefreshCw, CheckCircle, Clock, Search, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { User } from "@/types/requisition";
 import { usePagination } from "@/hooks/use-pagination";
@@ -59,6 +59,7 @@ export function InvoicesList({ invoices = [], payments = [], onLogPayment, onCon
   const [paymentImageFile, setPaymentImageFile] = useState<File | null>(null);
   const [amountPaid, setAmountPaid] = useState('');
   const [mpesaCode, setMpesaCode] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
 
   // Some user objects may not have a strict role union including "Finance"; use a safe check
   const isFinanceUser = String((currentUser as any)?.role) === "Finance";
@@ -90,11 +91,38 @@ export function InvoicesList({ invoices = [], payments = [], onLogPayment, onCon
     });
   }, [invoices, payments]);
 
-  const { page, totalPages, setPage, slice } = usePagination({ totalItems: invoicesWithPaymentData.length, initialPage: 1, initialPageSize: 10 });
+  // Filter invoices based on search term
+  const filteredInvoices = useMemo(() => {
+    if (!searchTerm.trim()) return invoicesWithPaymentData;
+    
+    const term = searchTerm.toLowerCase();
+    return invoicesWithPaymentData.filter(invoice => {
+      // Search in ID
+      const matchesId = (invoice.id || '').toLowerCase().includes(term);
+      // Search in client name
+      const matchesClient = (invoice.clientName || '').toLowerCase().includes(term);
+      // Search in product names from items
+      const items = typeof invoice.items === 'string' && invoice.items 
+        ? JSON.parse(invoice.items) 
+        : invoice.items || [];
+      const matchesProducts = items.some((item: any) => 
+        (item.productName || '').toLowerCase().includes(term)
+      );
+      
+      return matchesId || matchesClient || matchesProducts;
+    });
+  }, [invoicesWithPaymentData, searchTerm]);
+
+  const { page, totalPages, setPage, slice } = usePagination({ 
+    totalItems: filteredInvoices.length, 
+    initialPage: 1, 
+    initialPageSize: 10 
+  });
+  
   const paginatedInvoices = useMemo(() => {
     const [start, end] = slice;
-    return invoicesWithPaymentData.slice(start, end);
-  }, [invoicesWithPaymentData, slice]);
+    return filteredInvoices.slice(start, end);
+  }, [filteredInvoices, slice]);
 
   // Add function to handle payment confirmation
   const handleConfirmPayment = async (invoiceId: string) => {
@@ -166,6 +194,24 @@ export function InvoicesList({ invoices = [], payments = [], onLogPayment, onCon
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {/* Search Input */}
+        <div className="mb-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by Invoice ID, Client, or Product..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          {searchTerm && (
+            <p className="text-sm text-muted-foreground mt-2">
+              Found {filteredInvoices.length} result{filteredInvoices.length !== 1 ? 's' : ''}
+            </p>
+          )}
+        </div>
+
         <Table>
           <TableHeader>
             <TableRow>
@@ -189,7 +235,15 @@ export function InvoicesList({ invoices = [], payments = [], onLogPayment, onCon
                     </Button>
                   </TableCell>
                   <TableCell className="font-medium">{invoice.id}</TableCell>
-                  <TableCell>{invoice.clientName}</TableCell>
+                  <TableCell>
+                    {invoice.clientName}
+                    {invoice.customerPhone && (
+                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        <Phone className="h-3 w-3" />
+                        {invoice.customerPhone}
+                      </p>
+                    )}
+                  </TableCell>
                   <TableCell>
                     Ksh {Number(invoice.totalAmount).toLocaleString()}
                     <p className="text-xs text-green-600">Paid: Ksh {invoice.totalPaid.toLocaleString()}</p>

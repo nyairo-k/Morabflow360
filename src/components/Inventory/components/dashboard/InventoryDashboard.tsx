@@ -72,7 +72,6 @@ export function InventoryDashboard({
     };
   }, [requisitions, invoices, dispatchOrders]);
 
-  // Fulfillment Source Breakdown
   const fulfillmentBreakdown = useMemo(() => {
     const breakdown = dispatchOrders.reduce((acc, order) => {
       const source = order.sourceDetails || 'Unknown';

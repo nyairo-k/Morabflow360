@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/Inventory/components/ui/card";
 import { Button } from "@/components/Inventory/components/ui/button";
+import { Input } from "@/components/Inventory/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/Inventory/components/ui/tabs";
 import { Badge } from "@/components/Inventory/components/ui/badge";
-import { Package, Clock, CheckCircle, Truck, ArrowRight, Calendar, User, Phone, RefreshCw } from "lucide-react";
+import { Package, Clock, CheckCircle, Truck, ArrowRight, Calendar, User, Phone, RefreshCw, Search } from "lucide-react";
 import { StatusBadge } from "./StatusBadge";
 import { InvoiceAssignmentDialog } from "./InvoiceAssignmentDialog";
 import { DispatchApprovalDialog } from "./DispatchApprovalDialog";
@@ -12,6 +13,7 @@ import type { Invoice, PurchaseOrder, Supplier } from "@/components/Inventory/ty
 import { User as UserType } from "@/types/requisition";
 import { usePagination } from "@/hooks/use-pagination";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationPrevious, PaginationNext } from "@/components/Inventory/components/ui/pagination";
+import { StockManagement } from "./StockManagement";
 
 interface FulfillmentCenterProps {
   currentUser: UserType;
@@ -20,7 +22,8 @@ interface FulfillmentCenterProps {
   purchaseOrders: PurchaseOrder[];
   dispatchOrders: any[];
   onAction: (action: string, data: any) => void;
-  onRefresh?: () => Promise<void>; // Add this new prop
+  onRefresh?: () => Promise<void>;
+  readOnly?: boolean; // Add this
 }
 
 export function FulfillmentCenter({
@@ -31,13 +34,15 @@ export function FulfillmentCenter({
   dispatchOrders = [],
   fieldReps = [],
   onAction,
-  onRefresh // Add this new prop
+  onRefresh,
+  readOnly = false // Add this with default
 }: FulfillmentCenterProps) {
   
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [activeTab, setActiveTab] = useState("pending");
   const [dispatchInvoice, setDispatchInvoice] = useState<Invoice | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [searchTerm, setSearchTerm] = useState(''); // Add search state
 
   const invoicesWithFulfillmentStatus = useMemo(() => {
     return invoices.map(invoice => {
@@ -107,6 +112,11 @@ export function FulfillmentCenter({
   };
 
   const handleInvoiceClick = (invoice) => {
+    if (readOnly) {
+      // In read-only mode, just show details but don't allow actions
+      setSelectedInvoice(invoice);
+      return;
+    }
     if (invoice.fulfillmentStatus === 'PENDING_APPROVAL') {
       setDispatchInvoice(invoice);
     } else {
@@ -138,13 +148,39 @@ export function FulfillmentCenter({
     setDispatchInvoice(null);
   };
 
-  const pendingInvoices = invoicesWithFulfillmentStatus.filter(inv => 
-    inv.fulfillmentStatus === 'AWAITING_FULFILLMENT' || inv.fulfillmentStatus === 'PENDING_APPROVAL'
-  );
+  // Filter invoices based on search term (for pending and completed tabs)
+  const filterInvoices = (invoices: any[]) => {
+    if (!searchTerm.trim()) return invoices;
+    
+    const term = searchTerm.toLowerCase();
+    return invoices.filter(invoice => {
+      const matchesId = String(invoice.invoiceId || '').toLowerCase().includes(term);
+      const matchesCustomer = String(invoice.customerName || '').toLowerCase().includes(term);
+      const matchesPhone = String(invoice.customerPhone || '').toLowerCase().includes(term);
+      
+      return matchesId || matchesCustomer || matchesPhone;
+    });
+  };
 
-  const completedInvoices = invoicesWithFulfillmentStatus.filter(inv => 
-    inv.fulfillmentStatus === 'READY_FOR_DISPATCH' || inv.fulfillmentStatus === 'DISPATCHED'
-  );
+  const pendingInvoices = useMemo(() => {
+    const filtered = invoicesWithFulfillmentStatus.filter(inv => 
+      inv.fulfillmentStatus === 'AWAITING_FULFILLMENT' || inv.fulfillmentStatus === 'PENDING_APPROVAL'
+    );
+    return filterInvoices(filtered);
+  }, [invoicesWithFulfillmentStatus, searchTerm]);
+
+  const completedInvoices = useMemo(() => {
+    const filtered = invoicesWithFulfillmentStatus.filter(inv => 
+      inv.fulfillmentStatus === 'READY_FOR_DISPATCH' || inv.fulfillmentStatus === 'DISPATCHED'
+    );
+    return filterInvoices(filtered);
+  }, [invoicesWithFulfillmentStatus, searchTerm]);
+
+  // Reset search when switching tabs
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    setSearchTerm(''); // Clear search when switching tabs
+  };
 
   // Pagination per tab
   const pendingPagination = usePagination({ totalItems: pendingInvoices.length, initialPage: 1, initialPageSize: 9 });
@@ -252,20 +288,22 @@ export function FulfillmentCenter({
         </div>
 
         {/* Modern Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4 bg-white border border-slate-200 rounded-xl p-1">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+          <TabsList className={`grid w-full ${readOnly ? 'grid-cols-3' : 'grid-cols-4'} bg-white border border-slate-200 rounded-xl p-1`}>
             <TabsTrigger 
               value="pending" 
               className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white"
             >
               Pending Orders
             </TabsTrigger>
-            <TabsTrigger 
-              value="outsourced" 
-              className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white"
-            >
-              Outsourced Items
-            </TabsTrigger>
+            {!readOnly && (
+              <TabsTrigger 
+                value="outsourced" 
+                className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+              >
+                Outsourced Items
+              </TabsTrigger>
+            )}
             <TabsTrigger 
               value="completed" 
               className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white"
@@ -273,12 +311,37 @@ export function FulfillmentCenter({
               Completed
             </TabsTrigger>
             <TabsTrigger 
-              value="reports" 
+              value="stock" 
               className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white"
             >
-              Reports
+              Stock Management
             </TabsTrigger>
           </TabsList>
+
+          {/* Search Input - placed above tab content - Hide for Stock Management tab */}
+          {activeTab !== 'stock' && (
+            <div className="mt-6 mb-4">
+              <div className="relative max-w-md">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder={
+                    activeTab === 'outsourced' 
+                      ? "Search by PO ID, Supplier, Product, or Invoice ID..."
+                      : "Search by Invoice ID, Customer Name, or Phone..."
+                  }
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 bg-white"
+                />
+              </div>
+              {searchTerm && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  {activeTab === 'pending' && `Found ${pendingInvoices.length} result${pendingInvoices.length !== 1 ? 's' : ''}`}
+                  {activeTab === 'completed' && `Found ${completedInvoices.length} result${completedInvoices.length !== 1 ? 's' : ''}`}
+                </p>
+              )}
+            </div>
+          )}
 
           <TabsContent value="pending" className="space-y-6 mt-6">
             {pendingInvoices.length > 0 ? (
@@ -336,8 +399,9 @@ export function FulfillmentCenter({
                             e.stopPropagation();
                             handleInvoiceClick(invoice);
                           }}
+                          disabled={readOnly} // Add this
                         >
-                          {invoice.fulfillmentStatus === "AWAITING_FULFILLMENT" ? "Assign Fulfillment" : "Pending Approval"}
+                          {readOnly ? "View Details" : invoice.fulfillmentStatus === "AWAITING_FULFILLMENT" ? "Assign Fulfillment" : "Pending Approval"}
                           <ArrowRight className="h-4 w-4 ml-2" />
                         </Button>
                       </CardContent>
@@ -395,7 +459,8 @@ export function FulfillmentCenter({
             <OutsourcedItemsHub 
               purchaseOrders={purchaseOrders} 
               onAction={onAction} 
-              currentUser={currentUser} 
+              currentUser={currentUser}
+              searchTerm={searchTerm} // Pass search term to OutsourcedItemsHub
             />
           </TabsContent>
 
@@ -491,16 +556,14 @@ export function FulfillmentCenter({
             )}
           </TabsContent>
 
-          <TabsContent value="reports" className="space-y-6 mt-6">
-            <Card className="border-slate-200">
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <div className="h-12 w-12 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                  <Package className="h-6 w-6 text-slate-400" />
-                </div>
-                <h3 className="font-semibold text-slate-900 mb-2">Reports coming soon</h3>
-                <p className="text-slate-500 text-center">Detailed fulfillment reports and analytics will be available here.</p>
-              </CardContent>
-            </Card>
+          <TabsContent value="stock" className="space-y-6 mt-6">
+            <StockManagement 
+              currentUser={currentUser}
+              fieldReps={fieldReps}
+              onAction={onAction}
+              onRefresh={onRefresh}
+              readOnly={readOnly} // Add this
+            />
           </TabsContent>
         </Tabs>
 

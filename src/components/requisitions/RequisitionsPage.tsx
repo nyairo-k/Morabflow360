@@ -79,10 +79,10 @@ export default function RequisitionsPage({
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
         const inId = (req.id || "").toLowerCase().includes(term);
-        const inDept = (req.department || "").toLowerCase().includes(term);
+        const inSupplier = (req.supplierName || "").toLowerCase().includes(term);
         const inRequester = (req.createdBy || "").toLowerCase().includes(term);
 
-        if (!inId && !inDept && !inRequester) {
+        if (!inId && !inSupplier && !inRequester) {
           return false; // If search term doesn't match, filter out
         }
       }
@@ -131,7 +131,7 @@ export default function RequisitionsPage({
         {/* Filters */}
         <div className="flex gap-4">
             <Input
-              placeholder="Search by ID, Dept, or Requester..."
+              placeholder="Search by ID, Requester, or Supplier..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />

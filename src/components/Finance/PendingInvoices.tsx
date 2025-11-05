@@ -5,16 +5,18 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown, ChevronRight, FileUp, List, Download, Loader2, History, Eye, CheckCircle, Clock } from "lucide-react"; 
+import { ChevronDown, ChevronRight, FileUp, List, Download, Loader2, History, Eye, CheckCircle, Clock, Search, Phone } from "lucide-react"; 
 import { toast } from "sonner";
 import { cfg } from "@/lib/config";
 import { usePagination } from "@/hooks/use-pagination";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationPrevious, PaginationNext } from "@/components/ui/pagination";
+import { Input } from "@/components/ui/input";
 
 // The interface for a single invoice
 export interface Invoice {
   id: string;
   clientName: string;
+  customerPhone?: string; // Add this line
   totalAmount: string;
   submittedDate: string;
   status: 'Waiting' | 'Uploaded';
@@ -57,6 +59,7 @@ export function PendingInvoices({ invoices, payments, onUploadSuccess, onConfirm
   const [isUploading, setIsUploading] = useState<string | null>(null);
   const [uploadFilter, setUploadFilter] = useState<'all' | 'Waiting' | 'Uploaded'>('all');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'Paid' | 'Partially Paid' | 'Unpaid'>('all');
+  const [searchTerm, setSearchTerm] = useState('');
   
   const invoicesWithPaymentData = useMemo(() => {
     return invoices.map(invoice => {
@@ -165,12 +168,34 @@ export function PendingInvoices({ invoices, payments, onUploadSuccess, onConfirm
     });
   }; 
 
-  // Apply filters
+  // Apply filters including search
   const filteredInvoices = useMemo(() => {
-    return invoicesWithPaymentData
+    let result = invoicesWithPaymentData
       .filter(inv => (uploadFilter === 'all' ? true : inv.status === uploadFilter))
       .filter(inv => (paymentFilter === 'all' ? true : inv.paymentStatus === paymentFilter));
-  }, [invoicesWithPaymentData, uploadFilter, paymentFilter]);
+
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      result = result.filter(invoice => {
+        // Search in ID
+        const matchesId = (invoice.id || '').toLowerCase().includes(term);
+        // Search in client name
+        const matchesClient = (invoice.clientName || '').toLowerCase().includes(term);
+        // Search in product names from items
+        const items = typeof invoice.items === 'string' && invoice.items 
+          ? JSON.parse(invoice.items) 
+          : invoice.items || [];
+        const matchesProducts = items.some((item: any) => 
+          (item.productName || '').toLowerCase().includes(term)
+        );
+        
+        return matchesId || matchesClient || matchesProducts;
+      });
+    }
+
+    return result;
+  }, [invoicesWithPaymentData, uploadFilter, paymentFilter, searchTerm]);
 
   const invoicesToShow = filteredInvoices.filter(inv => inv.status === 'Waiting' || inv.status === 'Uploaded');
   const { page, totalPages, setPage, slice } = usePagination({ totalItems: invoicesToShow.length, initialPage: 1, initialPageSize: 10 });
@@ -216,6 +241,21 @@ export function PendingInvoices({ invoices, payments, onUploadSuccess, onConfirm
               </SelectContent>
             </Select>
           </div>
+          {/* Search Input */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by Invoice ID, Client, or Product..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          {searchTerm && (
+            <p className="text-sm text-muted-foreground mt-2">
+              Found {invoicesToShow.length} result{invoicesToShow.length !== 1 ? 's' : ''}
+            </p>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -242,7 +282,15 @@ export function PendingInvoices({ invoices, payments, onUploadSuccess, onConfirm
                     </Button>
                   </TableCell>
                   <TableCell className="font-medium">{invoice.id}</TableCell>
-                  <TableCell>{invoice.clientName}</TableCell>
+                  <TableCell>
+                    {invoice.clientName}
+                    {invoice.customerPhone && (
+                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        <Phone className="h-3 w-3" />
+                        {invoice.customerPhone}
+                      </p>
+                    )}
+                  </TableCell>
                   
                   <TableCell>
                     Ksh {Number(invoice.totalAmount).toLocaleString()}

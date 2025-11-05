@@ -5,11 +5,16 @@ import { Checkbox } from "@/components/Inventory/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/Inventory/components/ui/select";
 import { Badge } from "@/components/Inventory/components/ui/badge";
 import { Input } from "@/components/Inventory/components/ui/input";
-import { Package, Building, User, ShoppingCart, Calendar, Eye } from "lucide-react";
+import { Package, Building, User, ShoppingCart, Calendar, Eye, Check, ChevronsUpDown } from "lucide-react";
 import { BulkAssignmentActions } from "./BulkAssignmentActions";
 import { PurchaseOrderDialog } from "./PurchaseOrderDialog";
 import type { InvoiceLineItem, FulfillmentSource, FieldRep, Supplier, Invoice, PurchaseOrder } from "@/components/Inventory/types/inventory";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationPrevious, PaginationNext } from "@/components/Inventory/components/ui/pagination";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/Inventory/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/Inventory/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { cfg } from "@/lib/config";
+
 // ====== 1. UPDATE THE PROPS INTERFACE ======
 interface FulfillmentTableProps {
   lineItems: InvoiceLineItem[];
@@ -33,6 +38,12 @@ export function FulfillmentTable({
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [poDialogOpen, setPODialogOpen] = useState(false);
   const [selectedItemForPO, setSelectedItemForPO] = useState<InvoiceLineItem | null>(null);
+  
+  // NEW: State for product autocomplete
+  const [productsCache, setProductsCache] = useState<Record<string, Array<{id: string, name: string, quantity: number}>>>({});
+  const [loadingProducts, setLoadingProducts] = useState<string>('');
+  const [openComboboxes, setOpenComboboxes] = useState<Record<string, boolean>>({});
+  const [productSearchValue, setProductSearchValue] = useState<Record<string, string>>({});
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -71,7 +82,53 @@ export function FulfillmentTable({
     setSelectedItems([]);
   };
 
-  const handleSourceChange = (itemId: string, source: FulfillmentSource) => {
+  // NEW: Function to fetch products for a location
+  const fetchProductsForLocation = async (locationName: string, repName?: string) => {
+    const cacheKey = repName ? `${locationName}-${repName}` : locationName;
+    
+    if (productsCache[cacheKey]) {
+      return productsCache[cacheKey];
+    }
+    
+    setLoadingProducts(cacheKey);
+    try {
+      const response = await fetch(cfg.inventoryScript, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'getProductsForLocation',
+          data: { locationName, repName: repName || null }
+        })
+      });
+      const result = await response.json();
+      
+      if (result.status === 'success' && result.products) {
+        setProductsCache(prev => ({ ...prev, [cacheKey]: result.products }));
+        return result.products;
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    } finally {
+      setLoadingProducts('');
+    }
+    return [];
+  };
+
+  // MODIFIED: Update source change handler to fetch products
+  const handleSourceChange = async (itemId: string, source: FulfillmentSource) => {
+    // Map source to location name
+    const locationMap: Record<string, string> = {
+      'MAIN_HQ': 'Inventory - Main HQ',
+      'NYAMIRA': 'Inventory - Nyamira Branch',
+      'FIELD_REP': 'Inventory - Field Reps'
+    };
+    
+    const locationName = locationMap[source];
+    if (locationName && source !== 'FIELD_REP') {
+      // For MAIN_HQ and NYAMIRA, fetch products immediately
+      await fetchProductsForLocation(locationName);
+    }
+    
     onLineItemUpdate(itemId, {
       fulfillmentSource: source,
       serialNumbers: undefined,
@@ -79,6 +136,28 @@ export function FulfillmentTable({
       assignedRep: undefined,
       poId: undefined
     });
+  };
+
+  // NEW: Handle Field Rep selection - fetch products for that rep
+  const handleRepChange = async (itemId: string, repName: string) => {
+    onLineItemUpdate(itemId, { assignedRep: repName });
+    
+    // Fetch products for this field rep
+    await fetchProductsForLocation('Inventory - Field Reps', repName);
+  };
+
+  // NEW: Handle product selection from autocomplete
+  const handleProductSelect = (itemId: string, productId: string, productName: string) => {
+    // Store product ID in serialNumbers[0] (which acts as productID in backend)
+    onLineItemUpdate(itemId, {
+      serialNumbers: [productId]
+    });
+    
+    // Update search value to show selected product name
+    setProductSearchValue(prev => ({ ...prev, [itemId]: productName }));
+    
+    // Close combobox
+    setOpenComboboxes(prev => ({ ...prev, [itemId]: false }));
   };
 
   const handleCreatePO = (item: InvoiceLineItem) => {
@@ -296,37 +375,113 @@ th{text-align:left} td.num{text-align:right}
     }
   };
 
+  // MODIFIED: Render assignment details with product autocomplete
   const renderAssignmentDetails = (item: InvoiceLineItem) => {
     if (!item.fulfillmentSource) return null;
 
     switch (item.fulfillmentSource) {
       case 'MAIN_HQ':
-      case 'NYAMIRA':
+      case 'NYAMIRA': {
+        const locationName = item.fulfillmentSource === 'MAIN_HQ' 
+          ? 'Inventory - Main HQ' 
+          : 'Inventory - Nyamira Branch';
+        const cacheKey = locationName;
+        const products = productsCache[cacheKey] || [];
+        const selectedProductId = item.serialNumbers?.[0] || '';
+        const selectedProduct = products.find(p => p.id === selectedProductId);
+        const isOpen = openComboboxes[item.id] || false;
+        const searchValue = productSearchValue[item.id] || '';
+        
+        // Fetch products if not cached
+        if (!productsCache[cacheKey] && !loadingProducts) {
+          fetchProductsForLocation(locationName);
+        }
+        
         return (
-          <div className="flex items-center gap-2 text-xs">
-            <Input
-              placeholder="Enter serial number"
-              value={item.serialNumbers?.[0] || ''}
-              onChange={(e) => onLineItemUpdate(item.id, {
-                serialNumbers: e.target.value.trim() ? [e.target.value.trim()] : undefined
-              })}
-              className="h-8 text-xs"
-            />
-          </div>
+          <Popover open={isOpen} onOpenChange={(open) => setOpenComboboxes(prev => ({ ...prev, [item.id]: open }))}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={isOpen}
+                className="w-[280px] h-8 justify-between text-xs"
+              >
+                {selectedProduct ? (
+                  <span className="truncate">{selectedProduct.name}</span>
+                ) : (
+                  <span className="text-muted-foreground">Search product...</span>
+                )}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[280px] p-0" align="start">
+              <Command>
+                <CommandInput 
+                  placeholder="Search product..." 
+                  value={searchValue}
+                  onValueChange={(value) => setProductSearchValue(prev => ({ ...prev, [item.id]: value }))}
+                />
+                <CommandList>
+                  <CommandEmpty>
+                    {loadingProducts === cacheKey ? 'Loading...' : 'No products found.'}
+                  </CommandEmpty>
+                  <CommandGroup>
+                    {products
+                      .filter(product => 
+                        !searchValue || 
+                        product.name.toLowerCase().includes(searchValue.toLowerCase()) ||
+                        product.id.toLowerCase().includes(searchValue.toLowerCase())
+                      )
+                      .map((product) => (
+                        <CommandItem
+                          key={product.id}
+                          value={product.id}
+                          onSelect={() => handleProductSelect(item.id, product.id, product.name)}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              selectedProductId === product.id ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          <div className="flex flex-col">
+                            <span className="text-sm">{product.name}</span>
+                            <span className="text-xs text-muted-foreground">ID: {product.id}</span>
+                            <span className="text-xs text-muted-foreground">Qty: {product.quantity}</span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
         );
+      }
 
-      case 'FIELD_REP':
+      case 'FIELD_REP': {
+        const cacheKey = item.assignedRep ? `Inventory - Field Reps-${item.assignedRep}` : '';
+        const products = item.assignedRep ? (productsCache[cacheKey] || []) : [];
+        const selectedProductId = item.serialNumbers?.[0] || '';
+        const selectedProduct = products.find(p => p.id === selectedProductId);
+        const isOpen = openComboboxes[item.id] || false;
+        const searchValue = productSearchValue[item.id] || '';
+        
+        // Fetch products when rep is selected and not cached
+        if (item.assignedRep && !productsCache[cacheKey] && !loadingProducts) {
+          fetchProductsForLocation('Inventory - Field Reps', item.assignedRep);
+        }
+        
         return (
           <div className="space-y-2">
             <Select
               value={item.assignedRep || ''}
-              onValueChange={(value) => onLineItemUpdate(item.id, { assignedRep: value })}
+              onValueChange={(value) => handleRepChange(item.id, value)}
             >
               <SelectTrigger className="h-8 text-xs">
                 <SelectValue placeholder="Select rep..." />
               </SelectTrigger>
               <SelectContent>
-                {/* This now correctly maps over the live 'fieldReps' prop */}
                 {fieldReps.map(rep => (
                   <SelectItem key={rep.id} value={rep.name}>
                     {rep.name}
@@ -335,21 +490,69 @@ th{text-align:left} td.num{text-align:right}
               </SelectContent>
             </Select>
             {item.assignedRep && (
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="Enter serial number"
-                  // This value was missing from your provided code, causing a bug.
-                  value={item.serialNumbers?.[0] || ''}
-                  onChange={(e) => onLineItemUpdate(item.id, {
-                    serialNumbers: e.target.value.trim() ? [e.target.value.trim()] : undefined
-                  })}
-                  className="h-8 text-xs"
-                />
-              </div>
+              <Popover open={isOpen} onOpenChange={(open) => setOpenComboboxes(prev => ({ ...prev, [item.id]: open }))}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isOpen}
+                    className="w-[280px] h-8 justify-between text-xs"
+                    disabled={!item.assignedRep}
+                  >
+                    {selectedProduct ? (
+                      <span className="truncate">{selectedProduct.name}</span>
+                    ) : (
+                      <span className="text-muted-foreground">Search product...</span>
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[280px] p-0" align="start">
+                  <Command>
+                    <CommandInput 
+                      placeholder="Search product..." 
+                      value={searchValue}
+                      onValueChange={(value) => setProductSearchValue(prev => ({ ...prev, [item.id]: value }))}
+                    />
+                    <CommandList>
+                      <CommandEmpty>
+                        {loadingProducts === cacheKey ? 'Loading...' : 'No products found.'}
+                      </CommandEmpty>
+                      <CommandGroup>
+                        {products
+                          .filter(product => 
+                            !searchValue || 
+                            product.name.toLowerCase().includes(searchValue.toLowerCase()) ||
+                            product.id.toLowerCase().includes(searchValue.toLowerCase())
+                          )
+                          .map((product) => (
+                            <CommandItem
+                              key={product.id}
+                              value={product.id}
+                              onSelect={() => handleProductSelect(item.id, product.id, product.name)}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  selectedProductId === product.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <div className="flex flex-col">
+                                <span className="text-sm">{product.name}</span>
+                                <span className="text-xs text-muted-foreground">ID: {product.id}</span>
+                                <span className="text-xs text-muted-foreground">Qty: {product.quantity}</span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             )}
           </div>
         );
-
+      }
 
       case 'OUTSOURCE':
         // Add safety check for undefined purchaseOrders

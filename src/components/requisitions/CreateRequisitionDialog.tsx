@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Trash2, ShoppingCart } from "lucide-react";
+import { Plus, Trash2, ShoppingCart, Package, Phone } from "lucide-react";
 import { User } from "@/types/requisition";
 import { toast } from "sonner";
 
@@ -45,12 +45,11 @@ export function CreateRequisitionDialog({ currentUser, onAction }: CreateRequisi
   const [expenseType, setExpenseType] = useState('');
   const [otherType, setOtherType] = useState('');
   
-  // Form data state (removed department, added requestedBy)
+  // Form data state - remove invoiceId completely
   const [formData, setFormData] = useState({
-    requestedBy: '',
     supplierName: '',
+    supplierPhone: '',
     notes: '',
-    invoiceId: '' // Add invoiceId field
   });
   
   const [items, setItems] = useState([
@@ -125,8 +124,8 @@ export function CreateRequisitionDialog({ currentUser, onAction }: CreateRequisi
     
     // For "Other" category, we only need the category (class and type are auto-set)
     if (expenseCategory === "Other") {
-      if (!formData.requestedBy || !formData.supplierName) {
-        toast.error("Please fill in requested by and supplier/field rep name.");
+      if (!formData.supplierName) {
+        toast.error("Please fill in supplier/field rep name.");
         return;
       }
       
@@ -146,14 +145,14 @@ export function CreateRequisitionDialog({ currentUser, onAction }: CreateRequisi
         return;
       }
       
-      // Add validation for InvoiceID when Outsourced Items is selected
-      if (isOutsourcedItems && !formData.invoiceId.trim()) {
-        toast.error("Please enter the Invoice ID for outsourced items.");
-        return;
-      }
+      // REMOVE invoiceId validation for outsourced items
+      // if (isOutsourcedItems && !formData.invoiceId.trim()) {
+      //   toast.error("Please enter the Invoice ID for outsourced items.");
+      //   return;
+      // }
       
-      if (!formData.requestedBy || !formData.supplierName) {
-        toast.error("Please fill in requested by and supplier/field rep name.");
+      if (!formData.supplierName) {
+        toast.error("Please fill in supplier/field rep name.");
         return;
       }
       
@@ -166,12 +165,16 @@ export function CreateRequisitionDialog({ currentUser, onAction }: CreateRequisi
     // Determine final expense type value
     const finalExpenseType = isOtherType ? otherType : expenseType;
 
+    // Get supplier phone for outsourced items
+    const supplierPhoneValue = isOutsourcedItems ? formData.supplierPhone : undefined;
+
     const requisitionData = {
       expenseCategory,
       expenseClass: expenseCategory === "Other" ? "Miscellaneous" : expenseClass,
       expenseType: expenseCategory === "Other" ? "Please specify in description" : finalExpenseType,
-      requestedBy: formData.requestedBy,
+      requestedBy: currentUser.name,
       supplierName: formData.supplierName,
+      // Remove supplierPhone from top level - it will be in items
       createdBy: currentUser.name,
       totalAmount: calculateTotal(),
       items: items.map(item => ({
@@ -179,7 +182,8 @@ export function CreateRequisitionDialog({ currentUser, onAction }: CreateRequisi
           description: item.description,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
-          ...(isOutsourcedItems && { invoiceId: formData.invoiceId })
+          // Include supplierPhone in each item for outsourced items
+          ...(isOutsourcedItems && supplierPhoneValue && { supplierPhone: supplierPhoneValue })
       })),
       notes: formData.notes
     };
@@ -189,7 +193,113 @@ export function CreateRequisitionDialog({ currentUser, onAction }: CreateRequisi
 
     onAction('create', requisitionData);
 
-    // Build a standalone printable HTML and offer it via toast link (no navigation)
+    // Generate Purchase Order PDF for outsourced items
+    if (isOutsourcedItems) {
+      generatePurchaseOrderPDF(requisitionData);
+    } else {
+      // Regular requisition print view
+      generateRequisitionPrintView(requisitionData);
+    }
+
+    // Reset form
+    setExpenseCategory('');
+    setExpenseClass('');
+    setExpenseType('');
+    setOtherType('');
+    setFormData({ supplierName: '', supplierPhone: '', notes: '' }); // Remove invoiceId
+    setItems([{ name: '', quantity: 1, unitPrice: 0, description: '' }]);
+    setOpen(false);
+  };
+
+  // Generate Purchase Order PDF (for outsourced items)
+  const generatePurchaseOrderPDF = async (requisitionData: any) => {
+    try {
+      await ensureHtml2PdfLoaded();
+      
+      // Extract supplier phone from items (first item should have it)
+      const firstItem = requisitionData.items?.[0];
+      const supplierPhoneValue = firstItem?.supplierPhone || '';
+      
+      const itemsRows = (requisitionData.items || []).map((it: any) => {
+        const qty = Number(it.quantity || 0);
+        const price = Number(it.unitPrice || 0);
+        const total = (qty * price).toLocaleString();
+        const name = it.productName || it.name || '-';
+        const desc = it.description ? ` - ${it.description}` : '';
+        return `<tr><td style="padding:6px;border-bottom:1px solid #f2f2f2">${name}${desc}</td><td style="text-align:right;padding:6px;border-bottom:1px solid #f2f2f2">${qty}</td><td style="text-align:right;padding:6px;border-bottom:1px solid #f2f2f2">${price.toLocaleString()}</td><td style="text-align:right;padding:6px;border-bottom:1px solid #f2f2f2">${total}</td></tr>`;
+      }).join('');
+
+      const totalAmount = Number(requisitionData.totalAmount || 0).toLocaleString();
+      const poId = `PO-${Date.now()}`;
+
+      const container = document.createElement('div');
+      container.style.width = '210mm';
+      container.style.padding = '12mm';
+      container.style.background = '#fff';
+      container.style.color = '#000';
+
+      container.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ddd;padding-bottom:8px">
+          <div><h2 style="margin:0;font-family:ui-sans-serif,system-ui">Purchase Order</h2><small style="color:#666">Generated ${new Date().toLocaleString()}</small></div>
+          <img src="/logo.png" alt="Company" style="height:40px"/>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px">
+          <div>
+            <div><strong>PO No:</strong> ${poId}</div>
+            <div><strong>Supplier:</strong> ${requisitionData.supplierName || '-'}</div>
+            ${supplierPhoneValue ? `<div><strong>Supplier Phone:</strong> ${supplierPhoneValue}</div>` : ''}
+            <div><strong>Requested By:</strong> ${requisitionData.requestedBy || requisitionData.createdBy || '-'}</div>
+          </div>
+          <div style="text-align:right">
+            <div><strong>Date:</strong> ${new Date().toLocaleDateString()}</div>
+            <div><strong>Created By:</strong> ${requisitionData.createdBy || '-'}</div>
+            <div><strong>Status:</strong> Pending Approval</div>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin-top:12px;font-family:ui-sans-serif,system-ui">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">Product</th>
+              <th style="text-align:right;padding:6px;border-bottom:1px solid #eee">Qty</th>
+              <th style="text-align:right;padding:6px;border-bottom:1px solid #eee">Unit Cost</th>
+              <th style="text-align:right;padding:6px;border-bottom:1px solid #eee">Total</th>
+            </tr>
+          </thead>
+          <tbody>${itemsRows}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" style="text-align:right;padding:6px"><strong>Total</strong></td>
+              <td style="text-align:right;padding:6px"><strong>${totalAmount}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
+          <div><div><strong>Authorized By</strong></div><div style="height:64px;border-bottom:1px solid #000"></div><small>Signature / Date</small></div>
+          <div><div><strong>Supplier Acceptance</strong></div><div style="height:64px;border-bottom:1px solid #000"></div><small>Signature / Date</small></div>
+        </div>
+      `;
+
+      const opt = {
+        margin: 0,
+        filename: `${poId}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      } as any;
+
+      (window as any).html2pdf().set(opt).from(container).save();
+      
+      toast.success("Requisition and Purchase Order created", {
+        description: "Purchase Order PDF has been generated and downloaded."
+      });
+    } catch (err) {
+      console.error('Failed to generate Purchase Order PDF:', err);
+      toast.error("Failed to generate Purchase Order PDF");
+    }
+  };
+
+  // Keep existing requisition print view generation
+  const generateRequisitionPrintView = (requisitionData: any) => {
     try {
       const itemsRows = (requisitionData.items || []).map((it: any) => {
         const qty = Number(it.quantity || 0);
@@ -237,7 +347,6 @@ th{text-align:left} td.num{text-align:right}
 </body></html>`;
 
       const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-      // Show a toast with link; do not navigate or steal focus
       toast.success("Requisition created", {
         description: (
           <a href={blobUrl} target="_blank" rel="noopener" className="underline">
@@ -245,20 +354,24 @@ th{text-align:left} td.num{text-align:right}
           </a>
         )
       });
-      // Revoke later to avoid leaks
       setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
     } catch (err) {
       console.error('Failed to prepare print view:', err);
     }
+  };
 
-    // Reset form
-    setExpenseCategory('');
-    setExpenseClass('');
-    setExpenseType('');
-    setOtherType('');
-    setFormData({ requestedBy: '', supplierName: '', notes: '', invoiceId: '' }); // Reset invoiceId
-    setItems([{ name: '', quantity: 1, unitPrice: 0, description: '' }]);
-    setOpen(false);
+  // Add html2pdf loader function
+  const ensureHtml2PdfLoaded = async (): Promise<void> => {
+    if (typeof window === 'undefined') return;
+    if ((window as any).html2pdf) return;
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load html2pdf.js'));
+      document.body.appendChild(script);
+    });
   };
 
   return (
@@ -368,10 +481,11 @@ th{text-align:left} td.num{text-align:right}
               <Label htmlFor="requestedBy">Requested By *</Label>
               <Input
                 id="requestedBy"
-                value={formData.requestedBy}
-                onChange={(e) => setFormData({...formData, requestedBy: e.target.value})}
+                value={currentUser.name}
+                onChange={(e) => {}}
                 placeholder="Enter requester's name"
                 required
+                disabled
               />
             </div>
             
@@ -387,15 +501,22 @@ th{text-align:left} td.num{text-align:right}
             </div>
           </div>
 
-          {/* Invoice ID Field - Only show for Outsourced Items */}
+          {/* Supplier Phone - Only for Outsourced Items */}
           {isOutsourcedItems && (
             <div className="space-y-2">
-              <Label htmlFor="invoiceId">Invoice ID *</Label>
+              <Label htmlFor="supplierPhone">
+                <Phone className="inline h-4 w-4 mr-1" />
+                Supplier Phone *
+              </Label>
               <Input
-                id="invoiceId"
-                value={formData.invoiceId}
-                onChange={(e) => setFormData({...formData, invoiceId: e.target.value})}
-                placeholder="Enter the invoice ID for outsourced items"
+                id="supplierPhone"
+                type="tel"
+                value={formData.supplierPhone}
+                onChange={(e) => setFormData({...formData, supplierPhone: e.target.value.replace(/\D/g, "").slice(0, 10)})}
+                placeholder="07XXXXXXXX"
+                inputMode="numeric"
+                pattern="[0-9]{10}"
+                maxLength={10}
                 required
               />
             </div>

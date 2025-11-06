@@ -40,7 +40,7 @@ export default function RequisitionsPage({
     // Safeguard #2: Ensure we are always working with an array
     const sourceRequisitions = Array.isArray(requisitions) ? requisitions : [];
 
-    return sourceRequisitions.filter(req => {
+    const filtered = sourceRequisitions.filter(req => {
       if (!req) return false; // Discard any invalid entries
 
       // Status Filter - Updated logic to handle all status types
@@ -89,6 +89,21 @@ export default function RequisitionsPage({
 
       // If it passed all checks, keep it
       return true;
+    });
+
+    // Sort: paid requisitions by paymentDate (most recent first), then unpaid by createdDate (most recent first)
+    return filtered.sort((a, b) => {
+      // If both are paid, sort by paymentDate (most recent first)
+      if (a.paymentStatus === 'Paid' && b.paymentStatus === 'Paid') {
+        const aDate = a.paymentDate ? new Date(a.paymentDate).getTime() : 0;
+        const bDate = b.paymentDate ? new Date(b.paymentDate).getTime() : 0;
+        return bDate - aDate; // Most recent first
+      }
+      // If only one is paid, paid ones come first
+      if (a.paymentStatus === 'Paid' && b.paymentStatus !== 'Paid') return -1;
+      if (a.paymentStatus !== 'Paid' && b.paymentStatus === 'Paid') return 1;
+      // Both unpaid, sort by createdDate (most recent first)
+      return new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime();
     });
   };
   

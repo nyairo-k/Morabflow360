@@ -45,6 +45,7 @@ export function Sidebar({
 
     { id: "accounts-payables", label: "Accounts Payables", icon: BarChart3, roles: ["Finance", "Admin"] },
     { id: "finance-pending", label: "Pending Invoices", icon: Receipt, roles: ["Finance", "Admin"] },
+    { id: "finance-proforma", label: "Proforma Invoices", icon: FileText, roles: ["Finance", "Admin"] },
     { id: "reports", label: "Reports", icon: BarChart3, roles: ["Admin"] },
   ];
 

@@ -9,6 +9,7 @@ import { InvoiceRequestForm } from "@/components/Sales/InvoiceRequestForm";
 import { QuotationsList } from "@/components/Sales/QuotationsList";
 import { InvoicesList } from "@/components/Sales/InvoicesList";
 import { PendingInvoices } from "@/components/Finance/PendingInvoices";
+import { ProformaInvoices } from "@/components/Finance/ProformaInvoices";
 import { PaymentStatus } from "@/components/Finance/PaymentStatus";
 import { ChangePasswordScreen } from "@/components/Auth/ChangePasswordScreen";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +25,7 @@ import { ReportsDashboard } from "@/components/Dashboard/ReportsDashboard";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { cfg } from "@/lib/config";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 
 // Define a type for our user object
@@ -49,6 +51,7 @@ const Index = () => {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [quotations, setQuotations] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [proformaInvoices, setProformaInvoices] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -369,7 +372,8 @@ useEffect(() => {
     refreshInvoiceData();
     refreshRequisitionData();
     refreshInventoryData();
-    refreshQuotationData(); // Add this line
+    refreshQuotationData();
+    refreshProformaData();
     // fetchInitialClientData(); 
   }
 }, [currentUser]);
@@ -439,7 +443,7 @@ useEffect(() => {
   };
   // --- YOUR ORIGINAL, UNTOUCHED HANDLER FUNCTIONS ---
   const handleQuotationSubmit = async (quotation: any) => {
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyngOpj42j9kULH5Nt2eJB_ppukRbx_nIUjde2CYZq6RoGNBuGkMNs6HPVtSCM5hMB2/exec"; 
+    const GOOGLE_SCRIPT_URL = cfg.googleScript; 
     const payload = {
       type: "quotation",
       quoteId: quotation.id,
@@ -471,27 +475,67 @@ useEffect(() => {
   };
 
   const handleInvoiceSubmit = (invoice: any) => {
-    setInvoices(prev => [...prev, invoice]);
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyngOpj42j9kULH5Nt2eJB_ppukRbx_nIUjde2CYZq6RoGNBuGkMNs6HPVtSCM5hMB2/exec";
-    const payload = {
-      type: "invoiceRequest",
-      clientName: invoice.clientName,
-      customerPhone: invoice.customerPhone,
-      items: invoice.items,
-      id: invoice.id, 
-      totalAmount: invoice.totalAmount,
-      requester: currentUser.name
-    };
-    fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.status === "success") { console.log("Backend direct invoice request successful."); }
-      else { console.error("Backend direct invoice request failed:", data.message); }
-    })
-    .catch(error => console.error("Network error on direct invoice request:", error));
+    const GOOGLE_SCRIPT_URL = cfg.googleScript;
+    
+    // Check if it's a proforma invoice
+    if (invoice.invoiceType === "Proforma Invoice") {
+      const proformaForUi = {
+        id: invoice.id,
+        clientName: invoice.clientName,
+        customerPhone: invoice.customerPhone,
+        items: invoice.items,
+        totalAmount: invoice.totalAmount,
+        status: "Waiting",
+        submittedDate: new Date().toISOString(),
+      };
+      setProformaInvoices(prev => [...prev, proformaForUi]);
+      
+      const payload = {
+        type: "proformaRequest",
+        clientName: invoice.clientName,
+        customerPhone: invoice.customerPhone,
+        items: invoice.items,
+        id: invoice.id, 
+        totalAmount: invoice.totalAmount,
+        requester: currentUser.name
+      };
+      
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "success") { 
+          console.log("Backend proforma request successful.");
+          refreshProformaData();
+        }
+        else { console.error("Backend proforma request failed:", data.message); }
+      })
+      .catch(error => console.error("Network error on proforma request:", error));
+    } else {
+      // Regular sales invoice (existing logic)
+      setInvoices(prev => [...prev, invoice]);
+      const payload = {
+        type: "invoiceRequest",
+        clientName: invoice.clientName,
+        customerPhone: invoice.customerPhone,
+        items: invoice.items,
+        id: invoice.id, 
+        totalAmount: invoice.totalAmount,
+        requester: currentUser.name
+      };
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "success") { console.log("Backend direct invoice request successful."); }
+        else { console.error("Backend direct invoice request failed:", data.message); }
+      })
+      .catch(error => console.error("Network error on direct invoice request:", error));
+    }
   };
 
   const handleQuotationApprove = (id: string) => {
@@ -519,7 +563,7 @@ useEffect(() => {
     };
     setInvoices(prev => [...prev, invoiceForUi]);
 
-    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyngOpj42j9kULH5Nt2eJB_ppukRbx_nIUjde2CYZq6RoGNBuGkMNs6HPVtSCM5hMB2/exec";
+    const GOOGLE_SCRIPT_URL = cfg.googleScript;
     
     const payload = {
       type: "updateQuoteStatus",
@@ -554,8 +598,144 @@ useEffect(() => {
     });
   };
 
+  const handleQuotationReject = (id: string, rejectionReason: string) => {
+    const rejectedQuoteData = quotations.find(q => q.id === id);
+
+    if (!rejectedQuoteData) {
+      toast.error("Logic Error: Could not find the quote to reject.");
+      return;
+    }
+
+    const GOOGLE_SCRIPT_URL = cfg.googleScript;
+    
+    const payload = {
+      type: "updateQuoteStatus",
+      quoteId: id,
+      customerPhone: rejectedQuoteData.customerPhone,
+      newStatus: "Rejected",
+      rejectionReason: rejectionReason,
+      rejectedBy: currentUser.name
+    };
+
+    const promise = fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(res => res.json());
+
+    toast.promise(promise, {
+      loading: 'Rejecting quotation...',
+      success: (data) => {
+        if (data.status === "success") {
+          refreshQuotationData();
+          return "Quotation rejected successfully!";
+        } else {
+          throw new Error(data.message);
+        }
+      },
+      error: (err) => `Error: ${err.message}`,
+    });
+  };
+
+  const handleProformaAccept = (id: string) => {
+    const GOOGLE_SCRIPT_URL = cfg.googleScript;
+    
+    const payload = {
+      type: "acceptProforma",
+      proformaId: id,
+      acceptedBy: currentUser.name
+    };
+
+    const promise = fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(res => res.json());
+
+    toast.promise(promise, {
+      loading: 'Accepting proforma invoice and creating sales invoice...',
+      success: (data) => {
+        if (data.status === "success") {
+          refreshProformaData();
+          refreshInvoiceData();
+          return "Proforma accepted and sales invoice created!";
+        } else {
+          throw new Error(data.message);
+        }
+      },
+      error: (err) => `Error: ${err.message}`,
+    });
+  };
+
+  const handleProformaReject = (id: string, rejectionReason: string) => {
+    const GOOGLE_SCRIPT_URL = cfg.googleScript;
+    
+    const payload = {
+      type: "rejectProforma",
+      proformaId: id,
+      rejectionReason: rejectionReason,
+      rejectedBy: currentUser.name
+    };
+
+    const promise = fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(res => res.json());
+
+    toast.promise(promise, {
+      loading: 'Rejecting proforma invoice...',
+      success: (data) => {
+        if (data.status === "success") {
+          refreshProformaData();
+          return "Proforma invoice rejected!";
+        } else {
+          throw new Error(data.message);
+        }
+      },
+      error: (err) => `Error: ${err.message}`,
+    });
+  };
+
   // Add this function after refreshInvoiceData
-const refreshQuotationData = async () => {
+  const refreshProformaData = async () => {
+    if (!currentUser) return;
+    console.log("Refreshing proforma invoice data for user:", currentUser.name);
+    setIsLoading(true);
+
+    const GOOGLE_SCRIPT_URL = cfg.googleScript; 
+
+    try {
+      const url = new URL(GOOGLE_SCRIPT_URL);
+      url.searchParams.append('type', 'proforma');
+      
+      if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff" || currentUser.role === "Disbursements") {
+        url.searchParams.append('requester', currentUser.name);
+      }
+      
+      const response = await fetch(url.toString());
+      const result = await response.json();
+      
+      if (result.status === "success") {
+        const sortedProforma = (result.data.proformaInvoices || []).sort((a: any, b: any) => 
+          new Date(b.submittedDate).getTime() - new Date(a.submittedDate).getTime()
+        );
+        setProformaInvoices(sortedProforma);
+        toast.success("Proforma invoice data refreshed!");
+      } else {
+        toast.error("Failed to refresh proforma data: ".concat(result.message));
+      }
+    } catch (error) {
+      toast.error("Network error while refreshing proforma data.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const refreshQuotationData = async () => {
   if (!currentUser) return;
   console.log("Refreshing quotation data for user:", currentUser.name);
   setIsLoading(true);
@@ -655,21 +835,41 @@ const renderContent = () => {
     <QuotationsList 
       quotations={quotations} 
       onApprove={handleQuotationApprove}
+      onReject={handleQuotationReject}
       onRefresh={refreshQuotationData}
     />
   </div>
 );
         case "sales-invoices": 
-  return (<div className="space-y-6">
-    <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
-    <InvoicesList 
-      invoices={invoices} 
-      payments={payments}
-      onLogPayment={handleLogPayment}
-      currentUser={currentUser}
-      onRefresh={refreshInvoiceData}
-    />
-  </div>);
+          return (
+            <div className="space-y-6">
+              <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
+              <Tabs defaultValue="sales" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
+                  <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
+                </TabsList>
+                <TabsContent value="sales">
+                  <InvoicesList 
+                    invoices={invoices} 
+                    payments={payments}
+                    onLogPayment={handleLogPayment}
+                    currentUser={currentUser}
+                    onRefresh={refreshInvoiceData}
+                  />
+                </TabsContent>
+                <TabsContent value="proforma">
+                  <ProformaInvoices 
+                    proformaInvoices={proformaInvoices} 
+                    onUploadSuccess={refreshProformaData}
+                    onAccept={handleProformaAccept}
+                    onReject={handleProformaReject}
+                    currentUser={currentUser}
+                  />
+                </TabsContent>
+              </Tabs>
+            </div>
+          );
         case "crm": return <CrmPage currentUser={currentUser} clients={clients} onClientAdded={addClientToState} />;
         case "requisitions":
   return (
@@ -718,6 +918,16 @@ const renderContent = () => {
     onConfirmPayment={handleConfirmPayment}
     currentUser={currentUser}
   />;
+      case "finance-proforma": 
+        return (
+          <ProformaInvoices 
+            proformaInvoices={proformaInvoices} 
+            onUploadSuccess={refreshProformaData}
+            onAccept={handleProformaAccept}
+            onReject={handleProformaReject}
+            currentUser={currentUser}
+          />
+        );
        case "sales-invoices": 
       return (
         <InvoicesList 
@@ -768,20 +978,49 @@ const renderContent = () => {
               />
             );
             case "crm": return <CrmPage currentUser={currentUser} clients={clients} onClientAdded={addClientToState} />;
-            case "sales-quotes": return (<div className="space-y-6"><QuotationForm onSubmit={handleQuotationSubmit} /><QuotationsList quotations={quotations} onApprove={handleQuotationApprove} onRefresh={refreshQuotationData} /></div>);
+            case "sales-quotes": return (<div className="space-y-6"><QuotationForm onSubmit={handleQuotationSubmit} /><QuotationsList quotations={quotations} onApprove={handleQuotationApprove} onReject={handleQuotationReject} onRefresh={refreshQuotationData} /></div>);
             case "sales-invoices": 
-          return (<div className="space-y-6">
-            <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
-            <InvoicesList 
-              invoices={invoices} 
-              payments={payments}
-              onLogPayment={handleLogPayment}
-              currentUser={currentUser}
-              onRefresh={refreshInvoiceData}
-            />
-          </div>);
+          return (
+            <div className="space-y-6">
+              <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
+              <Tabs defaultValue="sales" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
+                  <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
+                </TabsList>
+                <TabsContent value="sales">
+                  <InvoicesList 
+                    invoices={invoices} 
+                    payments={payments}
+                    onLogPayment={handleLogPayment}
+                    currentUser={currentUser}
+                    onRefresh={refreshInvoiceData}
+                  />
+                </TabsContent>
+                <TabsContent value="proforma">
+                  <ProformaInvoices 
+                    proformaInvoices={proformaInvoices} 
+                    onUploadSuccess={refreshProformaData}
+                    onAccept={handleProformaAccept}
+                    onReject={handleProformaReject}
+                    currentUser={currentUser}
+                  />
+                </TabsContent>
+              </Tabs>
+            </div>
+          );
           case "finance-pending": 
   return <PendingInvoices invoices={invoices} payments={payments} onUploadSuccess={refreshInvoiceData} />;
+          case "finance-proforma": 
+            return (
+              <ProformaInvoices 
+                proformaInvoices={proformaInvoices} 
+                onUploadSuccess={refreshProformaData}
+                onAccept={handleProformaAccept}
+                onReject={handleProformaReject}
+                currentUser={currentUser}
+              />
+            );
             case "finance-payments": return <PaymentStatus invoices={invoices} onUpdatePaymentStatus={handleUpdatePaymentStatus} />;
             case "requisitions":
   return (
@@ -861,6 +1100,7 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
                     <QuotationsList 
                         quotations={quotations} 
                         onApprove={handleQuotationApprove}
+                        onReject={handleQuotationReject}
                         onRefresh={refreshQuotationData}
                     />
                 </div>
@@ -869,13 +1109,30 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
             return (
                 <div className="space-y-6">
                     <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
-                    <InvoicesList 
-                        invoices={invoices} 
-                        payments={payments}
-                        onLogPayment={handleLogPayment}
-                        currentUser={currentUser}
-                        onRefresh={refreshInvoiceData}
-                    />
+                    <Tabs defaultValue="sales" className="w-full">
+                      <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
+                        <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="sales">
+                        <InvoicesList 
+                          invoices={invoices} 
+                          payments={payments}
+                          onLogPayment={handleLogPayment}
+                          currentUser={currentUser}
+                          onRefresh={refreshInvoiceData}
+                        />
+                      </TabsContent>
+                      <TabsContent value="proforma">
+                        <ProformaInvoices 
+                          proformaInvoices={proformaInvoices} 
+                          onUploadSuccess={refreshProformaData}
+                          onAccept={handleProformaAccept}
+                          onReject={handleProformaReject}
+                          currentUser={currentUser}
+                        />
+                      </TabsContent>
+                    </Tabs>
                 </div>
             );
         default: 
@@ -929,6 +1186,7 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
                         <QuotationsList 
                             quotations={quotations} 
                             onApprove={handleQuotationApprove}
+                            onReject={handleQuotationReject}
                             onRefresh={refreshQuotationData}
                         />
                     </div>
@@ -937,13 +1195,30 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
                 return (
                     <div className="space-y-6">
                         <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
-                        <InvoicesList 
-                            invoices={invoices} 
-                            payments={payments}
-                            onLogPayment={handleLogPayment}
-                            currentUser={currentUser}
-                            onRefresh={refreshInvoiceData}
-                        />
+                        <Tabs defaultValue="sales" className="w-full">
+                          <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
+                            <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
+                          </TabsList>
+                          <TabsContent value="sales">
+                            <InvoicesList 
+                              invoices={invoices} 
+                              payments={payments}
+                              onLogPayment={handleLogPayment}
+                              currentUser={currentUser}
+                              onRefresh={refreshInvoiceData}
+                            />
+                          </TabsContent>
+                          <TabsContent value="proforma">
+                            <ProformaInvoices 
+                              proformaInvoices={proformaInvoices} 
+                              onUploadSuccess={refreshProformaData}
+                              onAccept={handleProformaAccept}
+                              onReject={handleProformaReject}
+                              currentUser={currentUser}
+                            />
+                          </TabsContent>
+                        </Tabs>
                     </div>
                 );
             default: return <DisbursementsDashboard

@@ -18,6 +18,7 @@ interface InvoiceAssignmentDialogProps {
   open: boolean;
   onClose: () => void;
   onAction: (action: string, data: any) => void;
+  readOnly?: boolean; // Add this
 }
 
 export function InvoiceAssignmentDialog({ 
@@ -28,7 +29,8 @@ export function InvoiceAssignmentDialog({
   fieldReps = [],  // <-- ADD THIS (with a default value)
   open, 
   onClose, 
-  onAction 
+  onAction,
+  readOnly = false // Add this
 }: InvoiceAssignmentDialogProps) {
   
   // ====== 2. MANAGE ITEM STATE LOCALLY FOR EDITING ======
@@ -160,10 +162,11 @@ export function InvoiceAssignmentDialog({
             <FulfillmentTable
               lineItems={lineItems}
               invoiceId={invoice.invoiceId}
-              onLineItemUpdate={updateLineItem}
+              onLineItemUpdate={readOnly ? undefined : updateLineItem}
               onAction={onAction}
               suppliers={suppliers}
               purchaseOrders={purchaseOrders} // Add this
+              readOnly={readOnly} // Add this
               fieldReps={fieldReps}
             />
           </div>
@@ -175,10 +178,10 @@ export function InvoiceAssignmentDialog({
               Cancel
             </Button>
             <Button 
-              disabled={!canSubmit}
+              disabled={!canSubmit || readOnly}
               onClick={handleSubmit}
             >
-              Submit for Dispatch Approval
+              {readOnly ? "View Only" : "Submit for Dispatch Approval"}
             </Button>
           </div>
         </div>

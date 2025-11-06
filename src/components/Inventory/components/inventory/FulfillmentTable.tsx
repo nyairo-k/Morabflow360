@@ -24,6 +24,7 @@ interface FulfillmentTableProps {
   suppliers: Supplier[];
   purchaseOrders: PurchaseOrder[]; // Add this
   fieldReps: FieldRep[]; // It now receives the live list of field reps
+  readOnly?: boolean; // Add this
 }
 
 export function FulfillmentTable({ 
@@ -33,7 +34,8 @@ export function FulfillmentTable({
   onAction,
   suppliers,
   purchaseOrders, // Add this
-  fieldReps = [] // Receive the new prop and default to an empty array
+  fieldReps = [], // Receive the new prop and default to an empty array
+  readOnly = false // Add this
 }: FulfillmentTableProps) {
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [poDialogOpen, setPODialogOpen] = useState(false);
@@ -398,11 +400,12 @@ th{text-align:left} td.num{text-align:right}
         }
         
         return (
-          <Popover open={isOpen} onOpenChange={(open) => setOpenComboboxes(prev => ({ ...prev, [item.id]: open }))}>
+          <Popover open={isOpen && !readOnly} onOpenChange={(open) => !readOnly && setOpenComboboxes(prev => ({ ...prev, [item.id]: open }))}>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
                 role="combobox"
+                disabled={readOnly}
                 aria-expanded={isOpen}
                 className="w-[280px] h-8 justify-between text-xs"
               >
@@ -436,7 +439,8 @@ th{text-align:left} td.num{text-align:right}
                         <CommandItem
                           key={product.id}
                           value={product.id}
-                          onSelect={() => handleProductSelect(item.id, product.id, product.name)}
+                          onSelect={() => !readOnly && handleProductSelect(item.id, product.id, product.name)}
+                          disabled={readOnly}
                         >
                           <Check
                             className={cn(
@@ -477,8 +481,9 @@ th{text-align:left} td.num{text-align:right}
             <Select
               value={item.assignedRep || ''}
               onValueChange={(value) => handleRepChange(item.id, value)}
+              disabled={readOnly}
             >
-              <SelectTrigger className="h-8 text-xs">
+              <SelectTrigger className="h-8 text-xs" disabled={readOnly}>
                 <SelectValue placeholder="Select rep..." />
               </SelectTrigger>
               <SelectContent>
@@ -490,14 +495,14 @@ th{text-align:left} td.num{text-align:right}
               </SelectContent>
             </Select>
             {item.assignedRep && (
-              <Popover open={isOpen} onOpenChange={(open) => setOpenComboboxes(prev => ({ ...prev, [item.id]: open }))}>
+              <Popover open={isOpen && !readOnly} onOpenChange={(open) => !readOnly && setOpenComboboxes(prev => ({ ...prev, [item.id]: open }))}>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
                     role="combobox"
+                    disabled={readOnly || !item.assignedRep}
                     aria-expanded={isOpen}
                     className="w-[280px] h-8 justify-between text-xs"
-                    disabled={!item.assignedRep}
                   >
                     {selectedProduct ? (
                       <span className="truncate">{selectedProduct.name}</span>
@@ -581,6 +586,7 @@ th{text-align:left} td.num{text-align:right}
                 size="sm"
                 variant="outline"
                 className="h-8 text-xs"
+                disabled={readOnly}
               >
                 Create PO
               </Button>
@@ -600,6 +606,7 @@ th{text-align:left} td.num{text-align:right}
           selectedCount={selectedItems.length}
           onBulkAssign={handleBulkAssignment}
           onClearSelection={() => setSelectedItems([])}
+          readOnly={readOnly}
         />
 
         <div className="rounded-xl border bg-white shadow-sm">
@@ -616,6 +623,7 @@ th{text-align:left} td.num{text-align:right}
                   <Checkbox
                     checked={selectedItems.length > 0 && selectedItems.length === lineItems.length}
                     onCheckedChange={handleSelectAll}
+                    disabled={readOnly}
                   />
                 </TableHead>
                 <TableHead className="font-medium text-gray-700">Product</TableHead>
@@ -650,6 +658,7 @@ th{text-align:left} td.num{text-align:right}
                       <Checkbox
                         checked={selectedItems.includes(item.id)}
                         onCheckedChange={(checked) => handleSelectItem(item.id, checked as boolean)}
+                        disabled={readOnly}
                       />
                     </TableCell>
                     <TableCell>
@@ -667,8 +676,9 @@ th{text-align:left} td.num{text-align:right}
                       <Select
                         value={item.fulfillmentSource || ''}
                         onValueChange={(value: FulfillmentSource) => handleSourceChange(item.id, value)}
+                        disabled={readOnly}
                       >
-                        <SelectTrigger className="w-[200px] h-9">
+                        <SelectTrigger className="w-[200px] h-9" disabled={readOnly}>
                           <SelectValue>
                             {item.fulfillmentSource ? (
                               <div className="flex items-center gap-2 text-gray-900">

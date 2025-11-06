@@ -16,6 +16,7 @@ interface DispatchApprovalDialogProps {
   // It now expects the master onAction handler
   onAction: (action: string, data: any) => void;
   currentUser: UserType;
+  readOnly?: boolean; // Add this
 }
 
 export function DispatchApprovalDialog({ 
@@ -24,7 +25,8 @@ export function DispatchApprovalDialog({
   open, 
   onClose, 
   onAction, 
-  currentUser 
+  currentUser,
+  readOnly = false // Add this
 }: DispatchApprovalDialogProps) {
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -282,18 +284,18 @@ export function DispatchApprovalDialog({
             <div className="grid grid-cols-2 gap-4">
               <Button 
                 onClick={handleApproveAll}
-                disabled={isProcessing}
+                disabled={isProcessing || readOnly}
                 className="w-full"
               >
-                {isProcessing ? "Processing..." : "Approve All Items"}
+                {isProcessing ? "Processing..." : readOnly ? "View Only" : "Approve All Items"}
               </Button>
               <Button 
                 variant="outline"
                 onClick={handleRejectAll}
-                disabled={isProcessing}
+                disabled={isProcessing || readOnly}
                 className="w-full"
               >
-                {isProcessing ? "Processing..." : "Reject All Items"}
+                {isProcessing ? "Processing..." : readOnly ? "View Only" : "Reject All Items"}
               </Button>
             </div>
           </div>

@@ -52,6 +52,13 @@ export function StockManagement({ currentUser, fieldReps = [], onAction, onRefre
   const [openCombobox, setOpenCombobox] = useState(false);
   const [productSearchValue, setProductSearchValue] = useState("");
 
+  // Add these new state variables after line 53
+  const [showNewProductForm, setShowNewProductForm] = useState(false);
+  const [newProductId, setNewProductId] = useState("");
+  const [newProductName, setNewProductName] = useState("");
+  const [newProductCategory, setNewProductCategory] = useState("");
+  const [newProductQuantity, setNewProductQuantity] = useState("");
+
   const locations = [
     { value: "Inventory - Main HQ", label: "Main HQ" },
     { value: "Inventory - Nyamira Branch", label: "Nyamira" }
@@ -71,6 +78,27 @@ export function StockManagement({ currentUser, fieldReps = [], onAction, onRefre
 
   // Fetch all stock from all locations
   const fetchAllStock = async (forceRefresh = false) => {
+    // Check sessionStorage first if not forcing refresh
+    if (!forceRefresh) {
+      try {
+        const cachedData = sessionStorage.getItem('stockManagement_data');
+        const cachedTimestamp = sessionStorage.getItem('stockManagement_timestamp');
+        
+        if (cachedData && cachedTimestamp) {
+          const age = Date.now() - parseInt(cachedTimestamp);
+          // Use cached data if less than 5 minutes old
+          if (age < 5 * 60 * 1000) {
+            const stockItems = JSON.parse(cachedData);
+            setAllStock(stockItems);
+            setHasLoadedOnce(true);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("Error reading from sessionStorage:", error);
+      }
+    }
+
     // Don't fetch if data already exists and not forcing refresh
     if (allStock.length > 0 && !forceRefresh && hasLoadedOnce) {
       return;
@@ -80,38 +108,58 @@ export function StockManagement({ currentUser, fieldReps = [], onAction, onRefre
     try {
       const stockItems: StockItem[] = [];
       
-      // Fetch Main HQ
-      const mainHQProducts = await fetchProductsForLocation("Inventory - Main HQ");
-      stockItems.push(...mainHQProducts.map(p => ({
-        id: p.id,
-        name: p.name,
-        quantity: p.quantity,
-        location: "Main HQ"
-      })));
+      // Parallelize all API calls using Promise.all()
+      const promises = [
+        // Fetch Main HQ
+        fetchProductsForLocation("Inventory - Main HQ").then(products => 
+          products.map(p => ({
+            id: p.id,
+            name: p.name,
+            quantity: p.quantity,
+            location: "Main HQ"
+          }))
+        ),
+        // Fetch Nyamira Branch
+        fetchProductsForLocation("Inventory - Nyamira Branch").then(products => 
+          products.map(p => ({
+            id: p.id,
+            name: p.name,
+            quantity: p.quantity,
+            location: "Nyamira"
+          }))
+        ),
+        // Fetch all Field Reps in parallel
+        ...fieldReps.map(rep => 
+          fetchProductsForLocation("Inventory - Field Reps", rep.name).then(products => 
+            products.map(p => ({
+              id: p.id,
+              name: p.name,
+              quantity: p.quantity,
+              location: "Field Rep",
+              repName: rep.name
+            }))
+          )
+        )
+      ];
       
-      // Fetch Nyamira Branch
-      const nyamiraProducts = await fetchProductsForLocation("Inventory - Nyamira Branch");
-      stockItems.push(...nyamiraProducts.map(p => ({
-        id: p.id,
-        name: p.name,
-        quantity: p.quantity,
-        location: "Nyamira"
-      })));
+      // Wait for all promises to resolve in parallel
+      const results = await Promise.all(promises);
       
-      // Fetch Field Reps stock - fetch for each rep
-      for (const rep of fieldReps) {
-        const repProducts = await fetchProductsForLocation("Inventory - Field Reps", rep.name);
-        stockItems.push(...repProducts.map(p => ({
-          id: p.id,
-          name: p.name,
-          quantity: p.quantity,
-          location: "Field Rep",
-          repName: rep.name
-        })));
-      }
+      // Flatten all results into stockItems
+      results.forEach(result => {
+        stockItems.push(...result);
+      });
       
       setAllStock(stockItems);
-      setHasLoadedOnce(true); // Mark as loaded
+      setHasLoadedOnce(true);
+      
+      // Save to sessionStorage for persistence
+      try {
+        sessionStorage.setItem('stockManagement_data', JSON.stringify(stockItems));
+        sessionStorage.setItem('stockManagement_timestamp', Date.now().toString());
+      } catch (error) {
+        console.error("Error saving to sessionStorage:", error);
+      }
     } catch (error) {
       console.error("Error fetching stock:", error);
       toast.error("Failed to load stock data");
@@ -158,7 +206,7 @@ export function StockManagement({ currentUser, fieldReps = [], onAction, onRefre
     if (fieldReps.length > 0 && !hasLoadedOnce && allStock.length === 0) {
       fetchAllStock();
     }
-  }, [fieldReps]); // Only depend on fieldReps
+  }, [fieldReps.length]); // Only depend on fieldReps length to prevent unnecessary re-fetches
 
   // Load products when location changes in adjust form
   useEffect(() => {
@@ -258,6 +306,14 @@ export function StockManagement({ currentUser, fieldReps = [], onAction, onRefre
         // Refresh stock data after successful adjustment (force refresh)
         await fetchAllStock(true);
         
+        // Clear sessionStorage cache to force fresh data
+        try {
+          sessionStorage.removeItem('stockManagement_data');
+          sessionStorage.removeItem('stockManagement_timestamp');
+        } catch (error) {
+          console.error("Error clearing sessionStorage:", error);
+        }
+        
         if (onRefresh) await onRefresh();
       } else {
         toast.error(result.message || "Failed to adjust stock");
@@ -278,10 +334,81 @@ export function StockManagement({ currentUser, fieldReps = [], onAction, onRefre
     ? productsCache[`Inventory - Field Reps-${adjustRepName}`] || []
     : productsCache[adjustLocation] || [];
 
+  // Add this new function after handleProductSelect (around line 324)
+  const handleAddNewProduct = async () => {
+    if (!newProductId || !newProductName || !newProductQuantity) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+
+    // For Field Rep, rep name is required
+    if (adjustLocation === "Inventory - Field Reps" && !adjustRepName) {
+      toast.error("Please select a Field Rep");
+      return;
+    }
+
+    const quantity = parseFloat(newProductQuantity);
+    if (isNaN(quantity) || quantity < 0) {
+      toast.error("Please enter a valid quantity");
+      return;
+    }
+
+    try {
+      const response = await fetch(cfg.inventoryScript, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'addNewProduct',
+          data: {
+            location: adjustLocation,
+            productId: newProductId,
+            productName: newProductName,
+            category: newProductCategory,
+            openingQuantity: quantity,
+            reason: `New product added - ${adjustReason || 'No reason provided'}`,
+            userName: currentUser.name,
+            repName: adjustLocation === "Inventory - Field Reps" ? adjustRepName : null
+          }
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.status === 'success') {
+        toast.success("New product added successfully!");
+        // Reset form
+        setNewProductId("");
+        setNewProductName("");
+        setNewProductCategory("");
+        setNewProductQuantity("");
+        setShowNewProductForm(false);
+        setAdjustReason("");
+        
+        // Refresh stock data
+        await fetchAllStock(true);
+        
+        // Clear sessionStorage cache
+        try {
+          sessionStorage.removeItem('stockManagement_data');
+          sessionStorage.removeItem('stockManagement_timestamp');
+        } catch (error) {
+          console.error("Error clearing sessionStorage:", error);
+        }
+        
+        if (onRefresh) await onRefresh();
+      } else {
+        toast.error(result.message || "Failed to add new product");
+      }
+    } catch (error) {
+      console.error("Error adding new product:", error);
+      toast.error("Failed to add new product");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 bg-white border border-slate-200 rounded-xl p-1">
+        <TabsList className={`grid w-full ${readOnly ? 'grid-cols-1' : 'grid-cols-2'} bg-white border border-slate-200 rounded-xl p-1`}>
           <TabsTrigger 
             value="view" 
             className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white"
@@ -289,13 +416,15 @@ export function StockManagement({ currentUser, fieldReps = [], onAction, onRefre
             <Package className="h-4 w-4 mr-2" />
             View Stock
           </TabsTrigger>
-          <TabsTrigger 
-            value="adjust" 
-            className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Adjust Stock
-          </TabsTrigger>
+          {!readOnly && (
+            <TabsTrigger 
+              value="adjust" 
+              className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Adjust Stock
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="view" className="space-y-4 mt-6">
@@ -469,64 +598,145 @@ export function StockManagement({ currentUser, fieldReps = [], onAction, onRefre
                 </div>
               )}
 
-              {/* Product Selector */}
+              {/* New Product Option */}
               <div className="space-y-2">
-                <Label htmlFor="product">Product *</Label>
-                <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={openCombobox}
-                      className="w-full justify-between bg-white"
-                      disabled={adjustLocation === "Inventory - Field Reps" && !adjustRepName}
-                    >
-                      {adjustProductName || "Search product..."}
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-full p-0" align="start">
-                    <Command>
-                      <CommandInput 
-                        placeholder="Search product..." 
-                        value={productSearchValue}
-                        onValueChange={setProductSearchValue}
+                <div className="flex items-center justify-between">
+                  <Label>Product</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowNewProductForm(!showNewProductForm);
+                      if (!showNewProductForm) {
+                        // Clear existing product selection when switching to new product
+                        setAdjustProductId("");
+                        setAdjustProductName("");
+                      }
+                    }}
+                    className="text-xs"
+                  >
+                    {showNewProductForm ? "Select Existing Product" : "Add New Product"}
+                  </Button>
+                </div>
+                
+                {showNewProductForm ? (
+                  <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+                    <div className="space-y-2">
+                      <Label htmlFor="newProductId">Product ID *</Label>
+                      <Input
+                        id="newProductId"
+                        placeholder="Enter product ID"
+                        value={newProductId}
+                        onChange={(e) => setNewProductId(e.target.value)}
+                        className="bg-white"
                       />
-                      <CommandList>
-                        <CommandEmpty>
-                          {currentLocationProducts.length === 0 ? "Loading..." : "No products found."}
-                        </CommandEmpty>
-                        <CommandGroup>
-                          {currentLocationProducts
-                            .filter(product => 
-                              !productSearchValue || 
-                              product.name.toLowerCase().includes(productSearchValue.toLowerCase()) ||
-                              product.id.toLowerCase().includes(productSearchValue.toLowerCase())
-                            )
-                            .map((product) => (
-                              <CommandItem
-                                key={product.id}
-                                value={product.id}
-                                onSelect={() => handleProductSelect(product.id, product.name)}
-                              >
-                                <Check
-                                  className={cn(
-                                    "mr-2 h-4 w-4",
-                                    adjustProductId === product.id ? "opacity-100" : "opacity-0"
-                                  )}
-                                />
-                                <div className="flex flex-col">
-                                  <span className="text-sm">{product.name}</span>
-                                  <span className="text-xs text-muted-foreground">ID: {product.id}</span>
-                                  <span className="text-xs text-muted-foreground">Qty: {product.quantity}</span>
-                                </div>
-                              </CommandItem>
-                            ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="newProductName">Product Name *</Label>
+                      <Input
+                        id="newProductName"
+                        placeholder="Enter product name"
+                        value={newProductName}
+                        onChange={(e) => setNewProductName(e.target.value)}
+                        className="bg-white"
+                      />
+                    </div>
+                    
+                    {adjustLocation !== "Inventory - Field Reps" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="newProductCategory">Category</Label>
+                        <Input
+                          id="newProductCategory"
+                          placeholder="Enter category (optional)"
+                          value={newProductCategory}
+                          onChange={(e) => setNewProductCategory(e.target.value)}
+                          className="bg-white"
+                        />
+                      </div>
+                    )}
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="newProductQuantity">Opening Quantity *</Label>
+                      <Input
+                        id="newProductQuantity"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="Enter opening quantity"
+                        value={newProductQuantity}
+                        onChange={(e) => setNewProductQuantity(e.target.value)}
+                        className="bg-white"
+                      />
+                    </div>
+                    
+                    <Button
+                      onClick={handleAddNewProduct}
+                      className="w-full"
+                      disabled={!newProductId || !newProductName || !newProductQuantity || (adjustLocation === "Inventory - Field Reps" && !adjustRepName)}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add New Product
+                    </Button>
+                  </div>
+                ) : (
+                  <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={openCombobox}
+                        className="w-full justify-between bg-white"
+                        disabled={adjustLocation === "Inventory - Field Reps" && !adjustRepName}
+                      >
+                        {adjustProductName || "Search product..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput 
+                          placeholder="Search product..." 
+                          value={productSearchValue}
+                          onValueChange={setProductSearchValue}
+                        />
+                        <CommandList>
+                          <CommandEmpty>
+                            {currentLocationProducts.length === 0 ? "Loading..." : "No products found."}
+                          </CommandEmpty>
+                          <CommandGroup>
+                            {currentLocationProducts
+                              .filter(product => 
+                                !productSearchValue || 
+                                product.name.toLowerCase().includes(productSearchValue.toLowerCase()) ||
+                                product.id.toLowerCase().includes(productSearchValue.toLowerCase())
+                              )
+                              .map((product) => (
+                                <CommandItem
+                                  key={product.id}
+                                  value={product.id}
+                                  onSelect={() => handleProductSelect(product.id, product.name)}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      adjustProductId === product.id ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  <div className="flex flex-col">
+                                    <span className="text-sm">{product.name}</span>
+                                    <span className="text-xs text-muted-foreground">ID: {product.id}</span>
+                                    <span className="text-xs text-muted-foreground">Qty: {product.quantity}</span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                )}
               </div>
 
               {/* Action Type */}
@@ -584,7 +794,7 @@ export function StockManagement({ currentUser, fieldReps = [], onAction, onRefre
               <Button
                 onClick={handleAdjustStock}
                 className="w-full"
-                disabled={!adjustProductId || !adjustQuantity || !adjustReason.trim() || (adjustLocation === "Inventory - Field Reps" && !adjustRepName) || readOnly}
+                disabled={!adjustProductId || !adjustQuantity || !adjustReason.trim() || (adjustLocation === "Inventory - Field Reps" && !adjustRepName)}
               >
                 {adjustAction === 'ADD' ? (
                   <>

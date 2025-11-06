@@ -13,6 +13,7 @@ import { ProformaInvoices } from "@/components/Finance/ProformaInvoices";
 import { PaymentStatus } from "@/components/Finance/PaymentStatus";
 import { ChangePasswordScreen } from "@/components/Auth/ChangePasswordScreen";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { CrmPage } from "@/components/Crm/CrmPage";
 import { toast } from "sonner";
 import RequisitionsPage from "@/components/requisitions/RequisitionsPage";
@@ -51,6 +52,7 @@ const Index = () => {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [quotations, setQuotations] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [allInvoicesForFulfillment, setAllInvoicesForFulfillment] = useState<any[]>([]); // For InventoryStaff to see all fulfillment data
   const [proformaInvoices, setProformaInvoices] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -65,25 +67,29 @@ const Index = () => {
   // Use the mobile hook
   const isMobile = useIsMobile();
 
-  const fieldReps = [
+  // Memoize fieldReps to prevent unnecessary re-renders
+  const fieldReps = useMemo(() => [
     { id: "rep1", name: "Cecilia Ndinda" },
-    { id: "rep2", name: "Winnie Kiptoo" },
-    { id: "rep3", name: "Justin Miruka" },
     { id: "rep4", name: "Makori Kennedy" },
     { id: "rep5", name: "Victor Yego" },
     { id: "rep6", name: "Marion Musimbi" },
     { id: "rep7", name: "Nancy Nyamo" },
-  ];
+  ], []);
 
 
 const invoicesForFulfillment = useMemo(() => {
-    // Filter for invoices that are ready for dispatch
-    let fulfillableInvoices = invoices.filter(inv => inv.status === 'Uploaded');
+    // For InventoryStaff, use allInvoicesForFulfillment (all invoices without filtering)
+    // For Sales and Disbursements, use regular invoices (already filtered by requester at API)
+    // For Finance and Admin, use invoices (which may be filtered)
+    const sourceInvoices = (currentUser && currentUser.role === "InventoryStaff") 
+      ? allInvoicesForFulfillment 
+      : invoices;
     
-    // Filter by requester for Sales, Finance, and Disbursements roles
-    if (currentUser && (currentUser.role === "Sales" || currentUser.role === "Finance" || currentUser.role === "Disbursements")) {
-      fulfillableInvoices = fulfillableInvoices.filter(inv => inv.requester === currentUser.name);
-    }
+    // Filter for invoices that are ready for dispatch
+    let fulfillableInvoices = sourceInvoices.filter(inv => inv.status === 'Uploaded');
+    
+    // No additional filtering needed - Sales/Disbursements already filtered at API level
+    // Finance, InventoryStaff, and Admin see all invoices (no filtering applied)
 
     // Transform them into the structure that FulfillmentCenter expects
     return fulfillableInvoices.map(inv => {
@@ -108,7 +114,30 @@ const invoicesForFulfillment = useMemo(() => {
         }))
       };
     });
-  }, [invoices, currentUser]); 
+  }, [invoices, allInvoicesForFulfillment, currentUser]);
+
+  // Filter dispatch orders based on user role
+  // Sales & Disbursements: Only see dispatch orders for their invoices
+  // Finance, InventoryStaff, Admin: See ALL dispatch orders (no filtering)
+  const filteredDispatchOrders = useMemo(() => {
+    // For Finance, InventoryStaff, and Admin - show all dispatch orders
+    if (currentUser && (currentUser.role === "Finance" || currentUser.role === "InventoryStaff" || currentUser.role === "Admin")) {
+      return dispatchOrders;
+    }
+    
+    // For Sales and Disbursements - filter dispatch orders by their invoice IDs
+    if (currentUser && (currentUser.role === "Sales" || currentUser.role === "Disbursements")) {
+      // Get the invoice IDs from invoicesForFulfillment (what's actually displayed in fulfillment center)
+      // This ensures dispatch orders match exactly what invoices are shown
+      const userInvoiceIds = invoicesForFulfillment.map(inv => inv.invoiceId);
+      
+      // Filter dispatch orders to only include those matching the user's invoices
+      return dispatchOrders.filter(d => userInvoiceIds.includes(d.invoiceId));
+    }
+    
+    // Default: return all dispatch orders
+    return dispatchOrders;
+  }, [dispatchOrders, invoicesForFulfillment, currentUser]);
 
 
 
@@ -122,10 +151,11 @@ const invoicesForFulfillment = useMemo(() => {
     const GOOGLE_SCRIPT_URL = cfg.googleScript; 
 
     try {
-      // CHANGE: Only filter for Sales users, Finance and Admin see all data
+      // CHANGE: Filter for Sales, InventoryStaff, and Disbursements users
+      // Finance and Admin see all data
       const url = new URL(GOOGLE_SCRIPT_URL);
       
-      // Only add requester filter for Sales, InventoryStaff, and Disbursements roles
+      // Add requester filter for Sales, InventoryStaff, and Disbursements roles
       // Finance and Admin see all data
       if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff" || currentUser.role === "Disbursements") {
         url.searchParams.append('requester', currentUser.name);
@@ -143,6 +173,23 @@ const invoicesForFulfillment = useMemo(() => {
 
         setInvoices(sortedInvoices);
         setPayments(payments || []);
+        
+        // For InventoryStaff, fetch ALL invoices for fulfillment (without requester filter)
+        if (currentUser.role === "InventoryStaff") {
+          const allInvoicesUrl = new URL(GOOGLE_SCRIPT_URL);
+          // Don't add requester filter - fetch all invoices for fulfillment
+          const allInvoicesResponse = await fetch(allInvoicesUrl.toString());
+          const allInvoicesResult = await allInvoicesResponse.json();
+          if (allInvoicesResult.status === "success") {
+            const allSortedInvoices = (allInvoicesResult.data.invoices || []).sort((a: any, b: any) => 
+              new Date(b.submittedDate).getTime() - new Date(a.submittedDate).getTime()
+            );
+            setAllInvoicesForFulfillment(allSortedInvoices);
+          }
+        } else {
+          // For other roles, use the same invoices
+          setAllInvoicesForFulfillment(sortedInvoices);
+        }
         
         toast.success("Invoice & Payment data refreshed!");
       } else {
@@ -712,6 +759,8 @@ useEffect(() => {
       const url = new URL(GOOGLE_SCRIPT_URL);
       url.searchParams.append('type', 'proforma');
       
+      // Add requester filter for Sales, InventoryStaff, and Disbursements roles
+      // Finance and Admin see all data
       if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff" || currentUser.role === "Disbursements") {
         url.searchParams.append('requester', currentUser.name);
       }
@@ -743,10 +792,11 @@ useEffect(() => {
   const GOOGLE_SCRIPT_URL = cfg.googleScript; 
 
   try {
-    // CHANGE: Only filter for Sales users, Finance and Admin see all data
+    // CHANGE: Filter for Sales, InventoryStaff, and Disbursements users
+    // Finance and Admin see all data
     const url = new URL(GOOGLE_SCRIPT_URL);
     
-    // Only add requester filter for Sales, InventoryStaff, and Disbursements roles
+    // Add requester filter for Sales, InventoryStaff, and Disbursements roles
     // Finance and Admin see all data
     if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff" || currentUser.role === "Disbursements") {
       url.searchParams.append('requester', currentUser.name);
@@ -845,10 +895,24 @@ const renderContent = () => {
             <div className="space-y-6">
               <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
               <Tabs defaultValue="sales" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
-                  <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
-                </TabsList>
+                <div className="flex items-center justify-between mb-4">
+                  <TabsList className="grid w-auto grid-cols-2">
+                    <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
+                    <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
+                  </TabsList>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={async () => {
+                      await refreshInvoiceData();
+                      await refreshProformaData();
+                    }}
+                    className="flex items-center space-x-2"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    <span>Refresh All</span>
+                  </Button>
+                </div>
                 <TabsContent value="sales">
                   <InvoicesList 
                     invoices={invoices} 
@@ -865,6 +929,7 @@ const renderContent = () => {
                     onAccept={handleProformaAccept}
                     onReject={handleProformaReject}
                     currentUser={currentUser}
+                    onRefresh={refreshProformaData}
                   />
                 </TabsContent>
               </Tabs>
@@ -889,7 +954,7 @@ const renderContent = () => {
               suppliers={suppliers}
               fieldReps={fieldReps}
               purchaseOrders={purchaseOrders}
-              dispatchOrders={dispatchOrders}
+              dispatchOrders={filteredDispatchOrders}
               onAction={handleInventoryAction}
               onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
               readOnly={true} // Add this
@@ -917,6 +982,7 @@ const renderContent = () => {
     onUploadSuccess={refreshInvoiceData}
     onConfirmPayment={handleConfirmPayment}
     currentUser={currentUser}
+    onRefresh={refreshInvoiceData}
   />;
       case "finance-proforma": 
         return (
@@ -926,6 +992,7 @@ const renderContent = () => {
             onAccept={handleProformaAccept}
             onReject={handleProformaReject}
             currentUser={currentUser}
+            onRefresh={refreshProformaData}
           />
         );
        case "sales-invoices": 
@@ -957,7 +1024,7 @@ const renderContent = () => {
               suppliers={suppliers}
               fieldReps={fieldReps}
               purchaseOrders={purchaseOrders}
-              dispatchOrders={dispatchOrders}
+              dispatchOrders={filteredDispatchOrders}
               onAction={handleInventoryAction}
               onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
               readOnly={true} // Add this
@@ -984,10 +1051,24 @@ const renderContent = () => {
             <div className="space-y-6">
               <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
               <Tabs defaultValue="sales" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
-                  <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
-                </TabsList>
+                <div className="flex items-center justify-between mb-4">
+                  <TabsList className="grid w-auto grid-cols-2">
+                    <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
+                    <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
+                  </TabsList>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={async () => {
+                      await refreshInvoiceData();
+                      await refreshProformaData();
+                    }}
+                    className="flex items-center space-x-2"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    <span>Refresh All</span>
+                  </Button>
+                </div>
                 <TabsContent value="sales">
                   <InvoicesList 
                     invoices={invoices} 
@@ -1004,13 +1085,14 @@ const renderContent = () => {
                     onAccept={handleProformaAccept}
                     onReject={handleProformaReject}
                     currentUser={currentUser}
+                    onRefresh={refreshProformaData}
                   />
                 </TabsContent>
               </Tabs>
             </div>
           );
           case "finance-pending": 
-  return <PendingInvoices invoices={invoices} payments={payments} onUploadSuccess={refreshInvoiceData} />;
+  return <PendingInvoices invoices={invoices} payments={payments} onUploadSuccess={refreshInvoiceData} onRefresh={refreshInvoiceData} />;
           case "finance-proforma": 
             return (
               <ProformaInvoices 
@@ -1019,6 +1101,7 @@ const renderContent = () => {
                 onAccept={handleProformaAccept}
                 onReject={handleProformaReject}
                 currentUser={currentUser}
+                onRefresh={refreshProformaData}
               />
             );
             case "finance-payments": return <PaymentStatus invoices={invoices} onUpdatePaymentStatus={handleUpdatePaymentStatus} />;
@@ -1040,10 +1123,10 @@ const renderContent = () => {
       suppliers={suppliers}
       fieldReps={fieldReps}
       purchaseOrders={purchaseOrders}
-      dispatchOrders={dispatchOrders}
+      dispatchOrders={filteredDispatchOrders}
       onAction={handleInventoryAction}
       onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
-      readOnly={true} // Add this
+      // Admin should have full permissions (readOnly not set, defaults to false)
     />
   );
             case "reports": return (
@@ -1066,7 +1149,7 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
             return (
                 <InventoryStaffDashboard
                     currentUser={currentUser}
-                    dispatchOrders={dispatchOrders}
+                    dispatchOrders={filteredDispatchOrders}
                     requisitions={requisitions}
                     onNavigateToSection={setActiveSection}
                 />
@@ -1079,7 +1162,7 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
                     suppliers={suppliers}
                     fieldReps={fieldReps}
                     purchaseOrders={purchaseOrders}
-                    dispatchOrders={dispatchOrders}
+                    dispatchOrders={filteredDispatchOrders}
                     onAction={handleInventoryAction}
                     onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
                 />
@@ -1110,10 +1193,24 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
                 <div className="space-y-6">
                     <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
                     <Tabs defaultValue="sales" className="w-full">
-                      <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
-                        <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
-                      </TabsList>
+                      <div className="flex items-center justify-between mb-4">
+                        <TabsList className="grid w-auto grid-cols-2">
+                          <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
+                          <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
+                        </TabsList>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={async () => {
+                            await refreshInvoiceData();
+                            await refreshProformaData();
+                          }}
+                          className="flex items-center space-x-2"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          <span>Refresh All</span>
+                        </Button>
+                      </div>
                       <TabsContent value="sales">
                         <InvoicesList 
                           invoices={invoices} 
@@ -1130,6 +1227,7 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
                           onAccept={handleProformaAccept}
                           onReject={handleProformaReject}
                           currentUser={currentUser}
+                          onRefresh={refreshProformaData}
                         />
                       </TabsContent>
                     </Tabs>
@@ -1139,7 +1237,7 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
             return (
                 <InventoryStaffDashboard
                     currentUser={currentUser}
-                    dispatchOrders={dispatchOrders}
+                    dispatchOrders={filteredDispatchOrders}
                     requisitions={requisitions}
                     onNavigateToSection={setActiveSection}
                 />
@@ -1174,9 +1272,10 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
           suppliers={suppliers}
           fieldReps={fieldReps}
           purchaseOrders={purchaseOrders}
-          dispatchOrders={dispatchOrders}
+          dispatchOrders={filteredDispatchOrders}
           onAction={handleInventoryAction}
           onRefresh={async () => { await refreshInventoryData(); await refreshInvoiceData(); }}
+          readOnly={true} // Disbursements should be read-only (buttons inactive)
         />
       );
             case "sales-quotes": 
@@ -1196,10 +1295,24 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
                     <div className="space-y-6">
                         <InvoiceRequestForm onSubmit={handleInvoiceSubmit} />
                         <Tabs defaultValue="sales" className="w-full">
-                          <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
-                            <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
-                          </TabsList>
+                          <div className="flex items-center justify-between mb-4">
+                            <TabsList className="grid w-auto grid-cols-2">
+                              <TabsTrigger value="sales">Sales Invoices</TabsTrigger>
+                              <TabsTrigger value="proforma">Proforma Invoices</TabsTrigger>
+                            </TabsList>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={async () => {
+                                await refreshInvoiceData();
+                                await refreshProformaData();
+                              }}
+                              className="flex items-center space-x-2"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                              <span>Refresh All</span>
+                            </Button>
+                          </div>
                           <TabsContent value="sales">
                             <InvoicesList 
                               invoices={invoices} 
@@ -1216,6 +1329,7 @@ else if (userRole === "InventoryStaff") { // Assuming "InventoryStaff" is the ro
                               onAccept={handleProformaAccept}
                               onReject={handleProformaReject}
                               currentUser={currentUser}
+                              onRefresh={refreshProformaData}
                             />
                           </TabsContent>
                         </Tabs>

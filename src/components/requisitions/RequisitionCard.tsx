@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileText, Calendar, User, Building, DollarSign, Package, Upload, CheckCircle, Eye, AlertTriangle, XCircle, MoreVertical, FileDown, Info, ChevronDown, MessageSquare, Phone } from "lucide-react";
 import { User as UserType } from "@/types/requisition";
 import { useState } from "react";
@@ -60,11 +61,15 @@ const StatusBadge = ({ status }: { status: string }) => {
 
 export function RequisitionCard({ requisition, currentUser, onAction }: RequisitionCardProps) {
   const [showItems, setShowItems] = useState(false);
+  const [paymentMethodSelected, setPaymentMethodSelected] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState({
     recipientName: '',
     amountPaid: requisition.totalAmount, // Pre-fill with the total amount
+    paymentMethod: 'M-Pesa', // NEW: Payment method (M-Pesa or Bank Account)
     mpesaCode: '',
     transactionCost: 0,
+    bankReference: '', // NEW: Bank reference (only if Bank Account)
+    bankAccountName: '', // NEW: Bank account name (only if Bank Account)
   });
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -179,44 +184,89 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
   const handleApprove = () => onAction('approve', { requisitionId: requisition.id, approvedBy: currentUser.name });
   const handleReject = () => onAction('reject', { requisitionId: requisition.id, rejectedBy: currentUser.name });
   const handlePaySubmit = () => {
-    if (!paymentDetails.recipientName || !paymentDetails.amountPaid || !paymentDetails.mpesaCode) {
-      toast.error('Please fill in all required payment fields.');
-      return;
+    // Validation based on payment method
+    if (paymentDetails.paymentMethod === 'M-Pesa') {
+      if (!paymentDetails.recipientName?.trim() || !paymentDetails.amountPaid || paymentDetails.amountPaid <= 0 || !paymentDetails.mpesaCode?.trim()) {
+        toast.error('Please fill in all required M-Pesa payment fields.');
+        return;
+      }
+      // Payment proof is required for M-Pesa
+      if (!paymentProofFile) {
+        toast.error('Payment proof image is required.');
+        return;
+      }
+    } else if (paymentDetails.paymentMethod === 'Bank Account') {
+      if (!paymentDetails.recipientName?.trim() || !paymentDetails.amountPaid || paymentDetails.amountPaid <= 0 || !paymentDetails.bankReference?.trim() || !paymentDetails.bankAccountName?.trim()) {
+        toast.error('Please fill in all required bank payment fields.');
+        return;
+      }
+      // Payment proof is NOT required for Bank Account
     }
-    if (!paymentProofFile) {
-      toast.error('Payment proof image is required.');
-      return;
-    }
 
-    const formData = new FormData();
-    formData.append('receiptFile', paymentProofFile);
-    formData.append('requisitionId', requisition.id);
+    // Only upload proof for M-Pesa payments
+    let proofUrl = '';
+    
+    if (paymentDetails.paymentMethod === 'M-Pesa' && paymentProofFile) {
+      const formData = new FormData();
+      formData.append('receiptFile', paymentProofFile);
+      formData.append('requisitionId', requisition.id);
 
-    const backendUrl = `${cfg.apiBase}/upload-requisition-receipt`;
+      const backendUrl = `${cfg.apiBase}/upload-requisition-receipt`;
 
-    const promise = fetch(backendUrl, { method: 'POST', body: formData })
-      .then(async (res) => {
-        const text = await res.text();
-        if (!res.ok) {
-          throw new Error(text || 'Payment proof upload failed');
-        }
-        let data: any;
-        try { data = JSON.parse(text); } catch { throw new Error('Server did not return JSON'); }
-        return data;
-      })
-      .then((data) => {
-        return onAction('pay', {
-          requisitionId: requisition.id,
-          paidBy: currentUser.name,
-          paymentDetails: { ...paymentDetails, proofUrl: data.url },
+      const promise = fetch(backendUrl, { method: 'POST', body: formData })
+        .then(async (res) => {
+          const text = await res.text();
+          if (!res.ok) {
+            throw new Error(text || 'Payment proof upload failed');
+          }
+          let data: any;
+          try { data = JSON.parse(text); } catch { throw new Error('Server did not return JSON'); }
+          return data;
+        })
+        .then((data) => {
+          proofUrl = data.url;
+          // Clean payment details - only include relevant fields for M-Pesa
+          const cleanPaymentDetails = {
+            recipientName: paymentDetails.recipientName.trim(),
+            amountPaid: paymentDetails.amountPaid,
+            paymentMethod: 'M-Pesa',
+            mpesaCode: paymentDetails.mpesaCode.trim(),
+            transactionCost: paymentDetails.transactionCost || 0,
+            proofUrl: proofUrl
+          };
+          
+          return onAction('pay', {
+            requisitionId: requisition.id,
+            paidBy: currentUser.name,
+            paymentDetails: cleanPaymentDetails,
+          });
         });
-      });
 
-    toast.promise(promise, {
-      loading: 'Uploading payment proof and logging payment...',
-      success: 'Payment logged successfully!',
-      error: (err) => `Error: ${err.message}`,
-    });
+      toast.promise(promise, {
+        loading: 'Uploading payment proof and logging payment...',
+        success: 'Payment logged successfully!',
+        error: (err) => `Error: ${err.message}`,
+      });
+    } else if (paymentDetails.paymentMethod === 'Bank Account') {
+      // For Bank Account, submit directly without proof upload
+      // Clean payment details - only include relevant fields for Bank Account
+      const cleanPaymentDetails = {
+        recipientName: paymentDetails.recipientName.trim(),
+        amountPaid: paymentDetails.amountPaid,
+        paymentMethod: 'Bank Account',
+        bankReference: paymentDetails.bankReference.trim(),
+        bankAccountName: paymentDetails.bankAccountName.trim(),
+        proofUrl: ''
+      };
+      
+      // onAction already handles the toast notification
+      onAction('pay', {
+        requisitionId: requisition.id,
+        paidBy: currentUser.name,
+        paymentDetails: cleanPaymentDetails,
+      });
+    }
+
   };
  const handleReceiveSubmit = () => {
     // Enforce required fields
@@ -507,19 +557,120 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader><DialogTitle>Log Payment for {requisition.id}</DialogTitle></DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <InfoItem icon={User} label="Recipient Name" value={<Input value={paymentDetails.recipientName} onChange={(e) => setPaymentDetails({...paymentDetails, recipientName: e.target.value})} />} />
-                    <InfoItem icon={DollarSign} label="Amount Paid" value={<Input type="number" value={paymentDetails.amountPaid} onChange={(e) => setPaymentDetails({...paymentDetails, amountPaid: Number(e.target.value) || 0})} />} />
-                    <InfoItem icon={FileText} label="Mpesa Code" value={<Input value={paymentDetails.mpesaCode} onChange={(e) => setPaymentDetails({...paymentDetails, mpesaCode: e.target.value})} />} />
-                    <InfoItem icon={DollarSign} label="Transaction Cost" value={<Input type="number" value={paymentDetails.transactionCost} onChange={(e) => setPaymentDetails({...paymentDetails, transactionCost: Number(e.target.value) || 0})} />} />
-                    <div className="space-y-2">
-                      <Label>Upload Payment Proof (Image) *</Label>
-                      <Input type="file" accept=".png,.jpg,.jpeg" onChange={(e) => setPaymentProofFile(e.target.files?.[0] || null)} />
+                  
+                  {!paymentMethodSelected ? (
+                    // Step 1: Select Payment Method
+                    <div className="space-y-4 py-4">
+                      <div className="text-center space-y-2">
+                        <p className="text-sm text-muted-foreground">Select payment method</p>
+                        <div className="grid grid-cols-2 gap-4 mt-4">
+                          <Button
+                            variant="outline"
+                            className="h-24 flex flex-col items-center justify-center gap-2 hover:bg-green-50 hover:border-green-300"
+                            onClick={() => {
+                              setPaymentDetails({ ...paymentDetails, paymentMethod: 'M-Pesa' });
+                              setPaymentMethodSelected(true);
+                            }}
+                          >
+                            <FileText className="h-8 w-8 text-green-600" />
+                            <span className="font-semibold">M-Pesa</span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="h-24 flex flex-col items-center justify-center gap-2 hover:bg-blue-50 hover:border-blue-300"
+                            onClick={() => {
+                              setPaymentDetails({ ...paymentDetails, paymentMethod: 'Bank Account' });
+                              setPaymentMethodSelected(true);
+                            }}
+                          >
+                            <Building className="h-8 w-8 text-blue-600" />
+                            <span className="font-semibold">Bank Account</span>
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    // Step 2: Payment Form based on selected method
+                    <div className="space-y-4 py-4">
+                      {/* Back button to change payment method */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setPaymentMethodSelected(false);
+                          setPaymentDetails({
+                            recipientName: '',
+                            amountPaid: requisition.totalAmount,
+                            paymentMethod: 'M-Pesa',
+                            mpesaCode: '',
+                            transactionCost: 0,
+                            bankReference: '',
+                            bankAccountName: '',
+                          });
+                          setPaymentProofFile(null);
+                        }}
+                        className="mb-2"
+                      >
+                        ← Change Payment Method
+                      </Button>
+
+                      <InfoItem icon={User} label="Recipient Name *" value={<Input value={paymentDetails.recipientName} onChange={(e) => setPaymentDetails({...paymentDetails, recipientName: e.target.value})} />} />
+                      <InfoItem icon={DollarSign} label="Amount Paid *" value={<Input type="number" value={paymentDetails.amountPaid} onChange={(e) => setPaymentDetails({...paymentDetails, amountPaid: Number(e.target.value) || 0})} />} />
+                      
+                      {paymentDetails.paymentMethod === 'M-Pesa' && (
+                        <>
+                          <InfoItem icon={FileText} label="M-Pesa Code *" value={<Input value={paymentDetails.mpesaCode} onChange={(e) => setPaymentDetails({...paymentDetails, mpesaCode: e.target.value})} placeholder="e.g., RKI4..." />} />
+                          <InfoItem icon={DollarSign} label="Transaction Cost" value={<Input type="number" value={paymentDetails.transactionCost} onChange={(e) => setPaymentDetails({...paymentDetails, transactionCost: Number(e.target.value) || 0})} />} />
+                          <div className="space-y-2">
+                            <Label>Upload Payment Proof (Image) *</Label>
+                            <Input type="file" accept=".png,.jpg,.jpeg" onChange={(e) => setPaymentProofFile(e.target.files?.[0] || null)} />
+                          </div>
+                        </>
+                      )}
+                      
+                      {paymentDetails.paymentMethod === 'Bank Account' && (
+                        <>
+                          <InfoItem 
+                            icon={Building} 
+                            label="Bank Account Name *" 
+                            value={
+                              <Input 
+                                value={paymentDetails.bankAccountName} 
+                                onChange={(e) => setPaymentDetails({...paymentDetails, bankAccountName: e.target.value})} 
+                                placeholder="e.g., Main Operating Account"
+                              />
+                            } 
+                          />
+                          <InfoItem icon={FileText} label="Bank Reference/Check Number *" value={<Input value={paymentDetails.bankReference} onChange={(e) => setPaymentDetails({...paymentDetails, bankReference: e.target.value})} placeholder="e.g., CHK-12345 or Transfer Ref" />} />
+                        </>
+                      )}
+                    </div>
+                  )}
+                  
                   <DialogFooter>
-                    <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
-                    <Button onClick={handlePaySubmit}>Submit Payment</Button>
+                    <DialogClose asChild>
+                      <Button 
+                        variant="outline"
+                        onClick={() => {
+                          setPaymentMethodSelected(false);
+                          setPaymentDetails({
+                            recipientName: '',
+                            amountPaid: requisition.totalAmount,
+                            paymentMethod: 'M-Pesa',
+                            mpesaCode: '',
+                            transactionCost: 0,
+                            bankReference: '',
+                            bankAccountName: '',
+                          });
+                          setPaymentProofFile(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </DialogClose>
+                    {paymentMethodSelected && (
+                      <Button onClick={handlePaySubmit}>Submit Payment</Button>
+                    )}
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
@@ -583,7 +734,13 @@ export function RequisitionCard({ requisition, currentUser, onAction }: Requisit
           <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
             {requisition.approvedBy && <div>✓ Approved by <strong>{requisition.approvedBy}</strong> on {new Date(requisition.approvalDate!).toLocaleDateString()}</div>}
             {requisition.paidBy && <div>✓ Paid by <strong>{requisition.paidBy}</strong> on {new Date(requisition.paymentDate!).toLocaleDateString()}</div>}
-            {paymentDetailsObject.mpesaCode && <div>(Mpesa Code: {paymentDetailsObject.mpesaCode})</div>}
+            {paymentDetailsObject.paymentMethod === 'M-Pesa' && paymentDetailsObject.mpesaCode && <div>(M-Pesa Code: {paymentDetailsObject.mpesaCode})</div>}
+            {paymentDetailsObject.paymentMethod === 'Bank Account' && (
+              <>
+                {paymentDetailsObject.bankAccountName && <div>(Bank Account: {paymentDetailsObject.bankAccountName})</div>}
+                {paymentDetailsObject.bankReference && <div>(Bank Reference: {paymentDetailsObject.bankReference})</div>}
+              </>
+            )}
             {requisition.receivedBy && <div>✓ Received by <strong>{requisition.receivedBy}</strong> on {new Date(requisition.receivedDate!).toLocaleDateString()}</div>}
             {requisition.receiptUrl && (
               <div className="pt-2">

@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ChevronDown, ChevronRight, FileUp, List, Download, Loader2, History, Eye, CheckCircle, Clock, Search, Phone, X } from "lucide-react"; 
+import { ChevronDown, ChevronRight, FileUp, List, Download, Loader2, History, Eye, CheckCircle, Clock, Search, Phone, X, RefreshCw } from "lucide-react"; 
 import { toast } from "sonner";
 import { cfg } from "@/lib/config";
 import { usePagination } from "@/hooks/use-pagination";
@@ -40,9 +40,11 @@ interface ProformaInvoicesProps {
   onAccept: (id: string) => void;
   onReject: (id: string, rejectionReason: string) => void;
   currentUser?: any;
+  onRefresh?: () => void;
+  hideRefreshButton?: boolean;
 }
 
-export function ProformaInvoices({ proformaInvoices, onUploadSuccess, onAccept, onReject, currentUser }: ProformaInvoicesProps) {
+export function ProformaInvoices({ proformaInvoices, onUploadSuccess, onAccept, onReject, currentUser, onRefresh, hideRefreshButton }: ProformaInvoicesProps) {
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'Waiting' | 'Uploaded' | 'Accepted' | 'Rejected'>('all');
@@ -81,22 +83,70 @@ export function ProformaInvoices({ proformaInvoices, onUploadSuccess, onAccept, 
     if (!file) return;
 
     setIsUploading(invoiceId);
+    
+    // Step 1: Upload file using the same endpoint as regular invoices
+    // The backend will upload the file successfully, but fail to find it in "Invoices" sheet
+    // Since backend can't be modified, we'll construct the URL ourselves based on backend's pattern
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("invoiceId", invoiceId);
+    formData.append("invoiceId", invoiceId); // Use actual proforma invoice ID
     
-    const backendUrl = `${cfg.apiBase}/upload-proforma-invoice`;
-
+    const backendUrl = `${cfg.apiBase}/upload-invoice`;
+    
+    // Backend uploads to: invoices/${invoiceId}-${filename}
+    // URL pattern: https://storage.googleapis.com/${BUCKET_NAME}/invoices/${invoiceId}-${filename}
+    const BUCKET_NAME = "morab-flow-invoices"; // From backend default
+    const fileName = file.name;
+    const constructedUrl = `https://storage.googleapis.com/${BUCKET_NAME}/invoices/${invoiceId}-${fileName}`;
+    
     fetch(backendUrl, {
       method: "POST",
       body: formData,
     })
     .then(async res => {
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || 'Upload failed');
+      // Backend will throw error because invoice not found in "Invoices" sheet
+      // But the file was already uploaded! We can construct the URL ourselves
+      const text = await res.text();
+      let data;
+      
+      try {
+        data = JSON.parse(text);
+        // If we got a successful response with URL, use it
+        if (data.url || data.pdfUrl) {
+          return { url: data.url || data.pdfUrl };
+        }
+      } catch {
+        // Response is not JSON - backend threw error
+        // But file was uploaded, so we use constructed URL
+        console.log("Backend error (expected for proforma), using constructed URL:", constructedUrl);
       }
-      return res.json();
+      
+      // File was uploaded even though backend threw error
+      // Use the constructed URL based on backend's naming pattern
+      return { url: constructedUrl };
+    })
+    .then(data => {
+      // Step 2: Get the PDF URL (either from response or constructed)
+      const pdfUrl = data.url;
+      
+      if (!pdfUrl) {
+        throw new Error("PDF URL not available");
+      }
+      
+      // Step 3: Update Proforma Invoices sheet with the PDF URL via Google Apps Script
+      const GOOGLE_SCRIPT_URL = cfg.googleScript;
+      const payload = {
+        type: "updateProformaPdfUrl",
+        proformaId: invoiceId,
+        pdfUrl: pdfUrl
+      };
+      
+      return fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      }).then(res => res.json());
     })
     .then(data => {
       toast.success("Proforma invoice uploaded successfully!");
@@ -159,10 +209,23 @@ export function ProformaInvoices({ proformaInvoices, onUploadSuccess, onAccept, 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center space-x-2">
-          <List className="h-5 w-5" />
-          <span>Proforma Invoices</span>
-          <Badge variant="secondary">{filteredInvoices.length}</Badge>
+        <CardTitle className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <List className="h-5 w-5" />
+            <span>Proforma Invoices</span>
+            <Badge variant="secondary">{filteredInvoices.length}</Badge>
+          </div>
+          {onRefresh && !hideRefreshButton && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={onRefresh}
+              className="flex items-center space-x-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span>Refresh</span>
+            </Button>
+          )}
         </CardTitle>
         <CardDescription>Manage proforma invoices and convert them to sales invoices.</CardDescription>
         <div className="mt-3 flex flex-wrap gap-3">

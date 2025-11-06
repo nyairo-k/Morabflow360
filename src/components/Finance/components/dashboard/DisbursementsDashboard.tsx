@@ -811,24 +811,6 @@ export function DisbursementsDashboard({ currentUser, requisitions, onAction }: 
               </div>
             </CardContent>
           </Card>
-
-          {/* Average Processing Time */}
-          <Card className="border-0 shadow-sm bg-white">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-600">Avg Processing Time</p>
-                  <p className="text-2xl font-semibold text-slate-900 mt-1">
-                    {kpis.averageProcessingTime} days
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">From request to payment</p>
-                </div>
-                <div className="h-10 w-10 bg-slate-50 rounded-lg flex items-center justify-center">
-                  <Clock className="h-5 w-5 text-slate-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Enhanced Expenditure Chart */}

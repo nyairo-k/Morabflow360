@@ -78,9 +78,9 @@ export default function RequisitionsPage({
       // Search Term Filter (with defensive checks)
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
-        const inId = (req.id || "").toLowerCase().includes(term);
-        const inSupplier = (req.supplierName || "").toLowerCase().includes(term);
-        const inRequester = (req.createdBy || "").toLowerCase().includes(term);
+        const inId = String(req.id || "").toLowerCase().includes(term);
+        const inSupplier = String(req.supplierName || "").toLowerCase().includes(term);
+        const inRequester = String(req.createdBy || "").toLowerCase().includes(term);
 
         if (!inId && !inSupplier && !inRequester) {
           return false; // If search term doesn't match, filter out

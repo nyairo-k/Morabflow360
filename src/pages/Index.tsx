@@ -469,11 +469,21 @@ useEffect(() => {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
-    }).then(res => {
-        if (!res.ok) {
-            return res.json().then(err => { throw new Error(err.message || "Action failed") });
-        }
-        return res.json();
+    }).then(async (res) => {
+      const raw = await res.text();
+
+      let json: any;
+      try {
+        json = JSON.parse(raw);
+      } catch {
+        throw new Error('Non-JSON response from Apps Script (wrong URL or not deployed as Web App)');
+      }
+
+      if (!res.ok || json.status !== 'success') {
+        throw new Error(json.message || 'Action failed');
+      }
+
+      return json;
     });
 
     toast.promise(promise, {

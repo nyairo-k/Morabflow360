@@ -578,6 +578,7 @@ export function FulfillmentCenter({
             onAction={onAction}
             open={!!selectedInvoice}
             onClose={() => setSelectedInvoice(null)}
+            readOnly={readOnly} // Add this
           />
         )}
 
@@ -589,6 +590,7 @@ export function FulfillmentCenter({
             onClose={() => setDispatchInvoice(null)}
             onAction={onAction}
             currentUser={currentUser}
+            readOnly={readOnly} // Add this
           />
         )}
       </div>

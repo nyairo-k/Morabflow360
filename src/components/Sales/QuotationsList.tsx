@@ -4,22 +4,47 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Check, ChevronDown, ChevronRight, Download, FileText, RefreshCw, Search, Phone } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Download, FileText, RefreshCw, Search, Phone, X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import { usePagination } from "@/hooks/use-pagination";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 
 interface QuotationsListProps {
   quotations: any[];
   onApprove: (id: string) => void;
+  onReject: (id: string, rejectionReason: string) => void;
   onRefresh?: () => void;
 }
 
-export function QuotationsList({ quotations, onApprove, onRefresh }: QuotationsListProps) {
+export function QuotationsList({ quotations, onApprove, onReject, onRefresh }: QuotationsListProps) {
   const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
 
   const handleToggleExpand = (quoteId: string) => {
     setExpandedQuoteId(prevId => (prevId === quoteId ? null : quoteId));
+  };
+
+  const handleRejectClick = (quoteId: string) => {
+    setSelectedQuoteId(quoteId);
+    setRejectionReason("");
+    setRejectDialogOpen(true);
+  };
+
+  const handleRejectConfirm = () => {
+    if (!selectedQuoteId || !rejectionReason.trim()) {
+      toast.error("Rejection reason is required");
+      return;
+    }
+    onReject(selectedQuoteId, rejectionReason.trim());
+    setRejectDialogOpen(false);
+    setSelectedQuoteId(null);
+    setRejectionReason("");
   };
 
   const getItemsArray = (quote: any): any[] => {
@@ -145,9 +170,14 @@ export function QuotationsList({ quotations, onApprove, onRefresh }: QuotationsL
                     {/* THIS IS THE ACTION BUTTONS LOGIC */}
                     <div className="flex space-x-2 justify-end items-center">
                       {quote.status === "Pending" && (
-                        <Button size="sm" onClick={() => onApprove(quote.id)} className="bg-green-600 hover:bg-green-700">
-                           <Check className="h-4 w-4 mr-1"/> Approve
-                        </Button>
+                        <>
+                          <Button size="sm" onClick={() => onApprove(quote.id)} className="bg-green-600 hover:bg-green-700">
+                            <Check className="h-4 w-4 mr-1"/> Approve
+                          </Button>
+                          <Button size="sm" onClick={() => handleRejectClick(quote.id)} variant="destructive">
+                            <X className="h-4 w-4 mr-1"/> Reject
+                          </Button>
+                        </>
                       )}
                       {/* THE DOWNLOAD BUTTON WILL ONLY APPEAR IF quote.pdfUrl EXISTS */}
                       {quote.pdfUrl && (
@@ -166,6 +196,18 @@ export function QuotationsList({ quotations, onApprove, onRefresh }: QuotationsL
                   <TableRow>
                     <TableCell colSpan={7} className="p-0">
                       <div className="p-4 bg-muted">
+                        {quote.status === "Rejected" && quote.rejectionReason && (
+                          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                            <h4 className="font-semibold text-red-800 mb-1">Rejection Reason:</h4>
+                            <p className="text-sm text-red-700">{quote.rejectionReason}</p>
+                            {quote.rejectedBy && (
+                              <p className="text-xs text-red-600 mt-1">Rejected by: {quote.rejectedBy}</p>
+                            )}
+                            {quote.rejectedDate && (
+                              <p className="text-xs text-red-600">Date: {new Date(quote.rejectedDate).toLocaleString()}</p>
+                            )}
+                          </div>
+                        )}
                         <h4 className="font-semibold mb-2">Quoted Items:</h4>
                         <div className="space-y-1 pl-4">
                           {getItemsArray(quote).map((item: any, index: number) => (
@@ -216,6 +258,37 @@ export function QuotationsList({ quotations, onApprove, onRefresh }: QuotationsL
           </Pagination>
         </div>
       </CardContent>
+
+      {/* Rejection Dialog */}
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Quotation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="rejection-reason">Rejection Reason *</Label>
+              <Textarea
+                id="rejection-reason"
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder="Enter reason for rejection..."
+                className="mt-2"
+                rows={4}
+                required
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleRejectConfirm}>
+              Confirm Rejection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

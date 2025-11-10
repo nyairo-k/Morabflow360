@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChevronDown, ChevronRight, ListChecks, Download, DollarSign, History, Eye, RefreshCw, CheckCircle, Clock, Search, Phone } from "lucide-react";
+import { ChevronDown, ChevronRight, ListChecks, Download, DollarSign, History, Eye, CheckCircle, Clock, Search, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { User } from "@/types/requisition";
 import { usePagination } from "@/hooks/use-pagination";
@@ -175,22 +175,9 @@ export function InvoicesList({ invoices = [], payments = [], onLogPayment, onCon
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <ListChecks className="h-5 w-5" />
-            <span>Invoice Payment Tracking</span>
-          </div>
-          {onRefresh && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={onRefresh}
-              className="flex items-center space-x-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              <span>Refresh</span>
-            </Button>
-          )}
+        <CardTitle className="flex items-center space-x-2">
+          <ListChecks className="h-5 w-5" />
+          <span>Invoice Payment Tracking</span>
         </CardTitle>
       </CardHeader>
       <CardContent>

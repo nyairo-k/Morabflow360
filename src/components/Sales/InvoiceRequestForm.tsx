@@ -25,6 +25,7 @@ export function InvoiceRequestForm({ onSubmit }: InvoiceRequestFormProps) {
     { productName: "", description: "", quantity: "1", unitPrice: "0.00" }
   ]);
   const [totalAmount, setTotalAmount] = useState("0.00");
+  const [invoiceType, setInvoiceType] = useState<"Sales Invoice" | "Proforma Invoice">("Sales Invoice");
 
   const handleItemChange = (index: number, field: keyof LineItem, value: string) => {
     const newItems = [...items];
@@ -67,6 +68,7 @@ export function InvoiceRequestForm({ onSubmit }: InvoiceRequestFormProps) {
       items: items,
       totalAmount: totalAmount,
       status: "Waiting",
+      invoiceType: invoiceType,
     };
     
     onSubmit(invoiceRequest);
@@ -76,6 +78,7 @@ export function InvoiceRequestForm({ onSubmit }: InvoiceRequestFormProps) {
     setCustomerPhone(""); 
     setItems([{ productName: "", description: "", quantity: "1", unitPrice: "0.00" }]);
     setTotalAmount("0.00");
+    setInvoiceType("Sales Invoice");
   };
 
   return (
@@ -108,6 +111,36 @@ export function InvoiceRequestForm({ onSubmit }: InvoiceRequestFormProps) {
                 maxLength={10}
                 required
               />
+            </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <Label className="text-base font-semibold">Invoice Type *</Label>
+            <div className="flex gap-4 mt-2">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="sales-invoice"
+                  name="invoiceType"
+                  value="Sales Invoice"
+                  checked={invoiceType === "Sales Invoice"}
+                  onChange={(e) => setInvoiceType(e.target.value as "Sales Invoice" | "Proforma Invoice")}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="sales-invoice" className="cursor-pointer">Sales Invoice</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="proforma-invoice"
+                  name="invoiceType"
+                  value="Proforma Invoice"
+                  checked={invoiceType === "Proforma Invoice"}
+                  onChange={(e) => setInvoiceType(e.target.value as "Sales Invoice" | "Proforma Invoice")}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="proforma-invoice" className="cursor-pointer">Proforma Invoice</Label>
+              </div>
             </div>
           </div>
 

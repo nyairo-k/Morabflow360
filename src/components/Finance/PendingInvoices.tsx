@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown, ChevronRight, FileUp, List, Download, Loader2, History, Eye, CheckCircle, Clock, Search, Phone } from "lucide-react"; 
+import { ChevronDown, ChevronRight, FileUp, List, Download, Loader2, History, Eye, CheckCircle, Clock, Search, Phone, RefreshCw } from "lucide-react"; 
 import { toast } from "sonner";
 import { cfg } from "@/lib/config";
 import { usePagination } from "@/hooks/use-pagination";
@@ -43,6 +43,7 @@ interface PendingInvoicesProps {
   onUploadSuccess: () => void;
   onConfirmPayment?: (paymentId: string) => Promise<void>;
   currentUser?: any;
+  onRefresh?: () => void;
 }
 
 const PaymentStatusBadge = ({ status }: { status: string }) => {
@@ -54,7 +55,7 @@ const PaymentStatusBadge = ({ status }: { status: string }) => {
   return <Badge className={statusStyles[status]}>{status}</Badge>;
 };
 
-export function PendingInvoices({ invoices, payments, onUploadSuccess, onConfirmPayment, currentUser }: PendingInvoicesProps) {
+export function PendingInvoices({ invoices, payments, onUploadSuccess, onConfirmPayment, currentUser, onRefresh }: PendingInvoicesProps) {
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState<string | null>(null);
   const [uploadFilter, setUploadFilter] = useState<'all' | 'Waiting' | 'Uploaded'>('all');
@@ -207,10 +208,23 @@ export function PendingInvoices({ invoices, payments, onUploadSuccess, onConfirm
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center space-x-2">
-          <List className="h-5 w-5" />
-          <span>Pending & Uploaded Invoices</span>
-          <Badge variant="secondary">{invoicesToShow.length}</Badge>
+        <CardTitle className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <List className="h-5 w-5" />
+            <span>Pending & Uploaded Invoices</span>
+            <Badge variant="secondary">{invoicesToShow.length}</Badge>
+          </div>
+          {onRefresh && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={onRefresh}
+              className="flex items-center space-x-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span>Refresh</span>
+            </Button>
+          )}
         </CardTitle>
         <CardDescription>Review requests and upload finalized invoices.</CardDescription>
         <div className="mt-3 flex flex-wrap gap-3">

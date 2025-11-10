@@ -8,9 +8,10 @@ interface BulkAssignmentActionsProps {
   selectedCount: number;
   onBulkAssign: (source: FulfillmentSource) => void;
   onClearSelection: () => void;
+  readOnly?: boolean; // Add this
 }
 
-export function BulkAssignmentActions({ selectedCount, onBulkAssign, onClearSelection }: BulkAssignmentActionsProps) {
+export function BulkAssignmentActions({ selectedCount, onBulkAssign, onClearSelection, readOnly = false }: BulkAssignmentActionsProps) {
   if (selectedCount === 0) return null;
 
   return (
@@ -30,6 +31,7 @@ export function BulkAssignmentActions({ selectedCount, onBulkAssign, onClearSele
               variant="outline"
               onClick={() => onBulkAssign('MAIN_HQ')}
               className="h-8"
+              disabled={readOnly}
             >
               <Building className="h-4 w-4 mr-1" />
               Main HQ
@@ -39,6 +41,7 @@ export function BulkAssignmentActions({ selectedCount, onBulkAssign, onClearSele
               variant="outline"
               onClick={() => onBulkAssign('NYAMIRA')}
               className="h-8"
+              disabled={readOnly}
             >
               <Building className="h-4 w-4 mr-1" />
               Nyamira
@@ -48,6 +51,7 @@ export function BulkAssignmentActions({ selectedCount, onBulkAssign, onClearSele
               variant="outline"
               onClick={() => onBulkAssign('FIELD_REP')}
               className="h-8"
+              disabled={readOnly}
             >
               <User className="h-4 w-4 mr-1" />
               Field Rep
@@ -57,6 +61,7 @@ export function BulkAssignmentActions({ selectedCount, onBulkAssign, onClearSele
               variant="outline"
               onClick={() => onBulkAssign('OUTSOURCE')}
               className="h-8"
+              disabled={readOnly}
             >
               <ShoppingCart className="h-4 w-4 mr-1" />
               Outsource
@@ -66,6 +71,7 @@ export function BulkAssignmentActions({ selectedCount, onBulkAssign, onClearSele
               variant="ghost"
               onClick={onClearSelection}
               className="h-8"
+              disabled={readOnly}
             >
               <X className="h-4 w-4" />
             </Button>

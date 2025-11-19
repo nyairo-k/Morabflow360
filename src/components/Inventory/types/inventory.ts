@@ -46,6 +46,19 @@ export interface PaymentDetails {
   paymentDate: string;
 }
 
+export interface FulfillmentSplit {
+  id: string;
+  parentItemId: string;
+  quantity: number;
+  fulfillmentSource?: FulfillmentSource;
+  serialNumbers?: string[];
+  poId?: string;
+  assignedLocation?: string;
+  assignedRep?: string;
+  assignedSupplierName?: string;
+  assignedSupplierPhone?: string;
+}
+
 export interface InvoiceLineItem {
   id: string;
   productId: string;
@@ -58,6 +71,11 @@ export interface InvoiceLineItem {
   assignedLocation?: string;
   assignedRep?: string;
   assignedSupplierName?: string;
+  assignedSupplierPhone?: string;
+  fulfillmentSplits?: FulfillmentSplit[];
+  skipFulfillment?: boolean;
+  nonFulfillmentReason?: string;
+  nonFulfillmentNotes?: string;
 }
 
 export interface Invoice {

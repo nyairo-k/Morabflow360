@@ -79,8 +79,8 @@ const Index = () => {
 
 const invoicesForFulfillment = useMemo(() => {
     // For InventoryStaff, use allInvoicesForFulfillment (all invoices without filtering)
-    // For Sales and Disbursements, use regular invoices (already filtered by requester at API)
-    // For Finance and Admin, use invoices (which may be filtered)
+    // For Sales, use regular invoices (already filtered by requester at API)
+    // For Finance, Disbursements, and Admin, use invoices (which may be filtered)
     const sourceInvoices = (currentUser && currentUser.role === "InventoryStaff") 
       ? allInvoicesForFulfillment 
       : invoices;
@@ -88,8 +88,8 @@ const invoicesForFulfillment = useMemo(() => {
     // Filter for invoices that are ready for dispatch
     let fulfillableInvoices = sourceInvoices.filter(inv => inv.status === 'Uploaded');
     
-    // No additional filtering needed - Sales/Disbursements already filtered at API level
-    // Finance, InventoryStaff, and Admin see all invoices (no filtering applied)
+    // No additional filtering needed - Sales already filtered at API level
+    // Finance, Disbursements, InventoryStaff, and Admin see all invoices (no filtering applied)
 
     // Transform them into the structure that FulfillmentCenter expects
     return fulfillableInvoices.map(inv => {
@@ -117,16 +117,16 @@ const invoicesForFulfillment = useMemo(() => {
   }, [invoices, allInvoicesForFulfillment, currentUser]);
 
   // Filter dispatch orders based on user role
-  // Sales & Disbursements: Only see dispatch orders for their invoices
-  // Finance, InventoryStaff, Admin: See ALL dispatch orders (no filtering)
+  // Sales: Only see dispatch orders for their invoices
+  // Finance, Disbursements, InventoryStaff, Admin: See ALL dispatch orders (no filtering)
   const filteredDispatchOrders = useMemo(() => {
-    // For Finance, InventoryStaff, and Admin - show all dispatch orders
-    if (currentUser && (currentUser.role === "Finance" || currentUser.role === "InventoryStaff" || currentUser.role === "Admin")) {
+    // For Finance, Disbursements, InventoryStaff, and Admin - show all dispatch orders
+    if (currentUser && (currentUser.role === "Finance" || currentUser.role === "Disbursements" || currentUser.role === "InventoryStaff" || currentUser.role === "Admin")) {
       return dispatchOrders;
     }
     
-    // For Sales and Disbursements - filter dispatch orders by their invoice IDs
-    if (currentUser && (currentUser.role === "Sales" || currentUser.role === "Disbursements")) {
+    // For Sales - filter dispatch orders by their invoice IDs
+    if (currentUser && currentUser.role === "Sales") {
       // Get the invoice IDs from invoicesForFulfillment (what's actually displayed in fulfillment center)
       // This ensures dispatch orders match exactly what invoices are shown
       const userInvoiceIds = invoicesForFulfillment.map(inv => inv.invoiceId);
@@ -151,13 +151,13 @@ const invoicesForFulfillment = useMemo(() => {
     const GOOGLE_SCRIPT_URL = cfg.googleScript; 
 
     try {
-      // CHANGE: Filter for Sales, InventoryStaff, and Disbursements users
-      // Finance and Admin see all data
+      // CHANGE: Filter for Sales and InventoryStaff users
+      // Finance, Disbursements, and Admin see all data
       const url = new URL(GOOGLE_SCRIPT_URL);
       
-      // Add requester filter for Sales, InventoryStaff, and Disbursements roles
-      // Finance and Admin see all data
-      if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff" || currentUser.role === "Disbursements") {
+      // Add requester filter for Sales and InventoryStaff roles
+      // Finance, Disbursements, and Admin see all data
+      if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff") {
         url.searchParams.append('requester', currentUser.name);
       }
       
@@ -769,9 +769,9 @@ useEffect(() => {
       const url = new URL(GOOGLE_SCRIPT_URL);
       url.searchParams.append('type', 'proforma');
       
-      // Add requester filter for Sales, InventoryStaff, and Disbursements roles
-      // Finance and Admin see all data
-      if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff" || currentUser.role === "Disbursements") {
+      // Add requester filter for Sales and InventoryStaff roles
+      // Finance, Disbursements, and Admin see all data
+      if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff") {
         url.searchParams.append('requester', currentUser.name);
       }
       
@@ -802,13 +802,13 @@ useEffect(() => {
   const GOOGLE_SCRIPT_URL = cfg.googleScript; 
 
   try {
-    // CHANGE: Filter for Sales, InventoryStaff, and Disbursements users
-    // Finance and Admin see all data
+    // CHANGE: Filter for Sales and InventoryStaff users
+    // Finance, Disbursements, and Admin see all data
     const url = new URL(GOOGLE_SCRIPT_URL);
     
-    // Add requester filter for Sales, InventoryStaff, and Disbursements roles
-    // Finance and Admin see all data
-    if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff" || currentUser.role === "Disbursements") {
+    // Add requester filter for Sales and InventoryStaff roles
+    // Finance, Disbursements, and Admin see all data
+    if (currentUser.role === "Sales" || currentUser.role === "InventoryStaff") {
       url.searchParams.append('requester', currentUser.name);
     }
     

@@ -35,11 +35,26 @@ export function OutsourcedItemsHub({
     const paymentHistory = getPaymentHistory(po);
     return paymentHistory.reduce((sum, payment) => sum + Number(payment.amount || payment.amountPaid || 0), 0);
   };
-  const getOutstandingAmount = (po: PurchaseOrder) => Number(po.purchasePrice) - getTotalPaid(po);
-  const getProfitMargin = (po: PurchaseOrder) => Number(po.sellingPrice) - Number(po.purchasePrice);
+  
+  // FIX: Since purchasePrice and sellingPrice are now stored as totals in DB,
+  // we can use them directly, but keep helper functions for clarity
+  const getTotalPurchasePrice = (po: PurchaseOrder) => {
+    // purchasePrice is now stored as total in DB, so use it directly
+    return Number(po.purchasePrice) || 0;
+  };
+  
+  const getTotalSellingPrice = (po: PurchaseOrder) => {
+    // sellingPrice is now stored as total in DB, so use it directly
+    return Number(po.sellingPrice) || 0;
+  };
+  
+  // FIX: Outstanding amount should be the total purchase price amount
+  const getOutstandingAmount = (po: PurchaseOrder) => getTotalPurchasePrice(po);
+  
+  const getProfitMargin = (po: PurchaseOrder) => getTotalSellingPrice(po) - getTotalPurchasePrice(po);
   const getProfitPercentage = (po: PurchaseOrder) => {
-    const sellingPrice = Number(po.sellingPrice);
-    return sellingPrice > 0 ? (getProfitMargin(po) / sellingPrice) * 100 : 0;
+    const totalSelling = getTotalSellingPrice(po);
+    return totalSelling > 0 ? (getProfitMargin(po) / totalSelling) * 100 : 0;
   };
   
   // New handler to connect the dialog to the master onAction function
@@ -86,13 +101,38 @@ export function OutsourcedItemsHub({
   };
 
   // FIX: Better data validation that handles the actual data structure
-  const validPurchaseOrders = purchaseOrders.filter(po => 
-    po.poId && 
-    po.relatedInvoiceId && 
-    po.supplierName &&
-    po.purchasePrice !== undefined &&
-    po.sellingPrice !== undefined
-  );
+  const validPurchaseOrders = purchaseOrders.filter(po => {
+    const isValid = po.poId && 
+      po.relatedInvoiceId && 
+      po.supplierName &&
+      po.purchasePrice !== undefined &&
+      po.sellingPrice !== undefined;
+    
+    // Debug: Log which POs are being filtered out
+    if (!isValid) {
+      console.log('PO FILTERED OUT:', {
+        poId: po.poId,
+        relatedInvoiceId: po.relatedInvoiceId,
+        supplierName: po.supplierName,
+        purchasePrice: po.purchasePrice,
+        sellingPrice: po.sellingPrice,
+        missingFields: {
+          poId: !po.poId,
+          relatedInvoiceId: !po.relatedInvoiceId,
+          supplierName: !po.supplierName,
+          purchasePrice: po.purchasePrice === undefined,
+          sellingPrice: po.sellingPrice === undefined
+        }
+      });
+    }
+    
+    return isValid;
+  });
+
+  // Debug: Log totals
+  console.log('Total POs from API:', purchaseOrders.length);
+  console.log('Valid POs after filter:', validPurchaseOrders.length);
+  console.log('Filtered out:', purchaseOrders.length - validPurchaseOrders.length);
 
   // Filter purchase orders based on search term
   const filteredPurchaseOrders = useMemo(() => {
@@ -224,6 +264,7 @@ export function OutsourcedItemsHub({
               <TableHeader>
                 <TableRow className="bg-gray-50">
                   <TableHead className="font-medium text-gray-700">PO ID</TableHead>
+                  <TableHead className="font-medium text-gray-700">Date</TableHead>
                   <TableHead className="font-medium text-gray-700">Supplier</TableHead>
                   <TableHead className="font-medium text-gray-700">Product</TableHead>
                   <TableHead className="font-medium text-gray-700">Purchase Price</TableHead>
@@ -239,6 +280,8 @@ export function OutsourcedItemsHub({
                   const paymentHistory = getPaymentHistory(po);
                   const hasPayments = paymentHistory.length > 0;
                   const totalPaid = getTotalPaid(po);
+                  const totalPurchasePrice = getTotalPurchasePrice(po);
+                  const totalSellingPrice = getTotalSellingPrice(po);
                   const outstanding = getOutstandingAmount(po);
                   const profit = getProfitMargin(po);
                   const profitPercent = getProfitPercentage(po);
@@ -247,6 +290,12 @@ export function OutsourcedItemsHub({
                     <TableRow key={po.poId} className="hover:bg-gray-50">
                       <TableCell className="font-mono text-sm font-medium text-gray-900">
                         {po.poId}
+                      </TableCell>
+                      
+                      <TableCell className="text-sm text-gray-600">
+                        {(po as any).createdDate 
+                          ? formatDate((po as any).createdDate)
+                          : 'N/A'}
                       </TableCell>
                       
                       <TableCell>
@@ -270,11 +319,11 @@ export function OutsourcedItemsHub({
                       </TableCell>
                       
                       <TableCell className="font-mono text-gray-900">
-                        KSh {Number(po.purchasePrice).toLocaleString()}
+                        KSh {totalPurchasePrice.toLocaleString()}
                       </TableCell>
                       
                       <TableCell className="font-mono text-gray-900">
-                        KSh {Number(po.sellingPrice).toLocaleString()}
+                        KSh {totalSellingPrice.toLocaleString()}
                       </TableCell>
                       
                       <TableCell>

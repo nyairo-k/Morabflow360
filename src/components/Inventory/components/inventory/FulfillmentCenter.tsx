@@ -44,6 +44,9 @@ export function FulfillmentCenter({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState(''); // Add search state
 
+  const canViewOutsourcedTab = !readOnly || currentUser.role === 'Disbursements';
+  const tabGridClass = canViewOutsourcedTab ? 'grid-cols-4' : 'grid-cols-3';
+
   const invoicesWithFulfillmentStatus = useMemo(() => {
     return invoices.map(invoice => {
       const relatedDispatchItems = dispatchOrders.filter(d => d.invoiceId === invoice.invoiceId);
@@ -289,14 +292,14 @@ export function FulfillmentCenter({
 
         {/* Modern Tabs */}
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className={`grid w-full ${readOnly ? 'grid-cols-3' : 'grid-cols-4'} bg-white border border-slate-200 rounded-xl p-1`}>
+          <TabsList className={`grid w-full ${tabGridClass} bg-white border border-slate-200 rounded-xl p-1`}>
             <TabsTrigger 
               value="pending" 
               className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white"
             >
               Pending Orders
             </TabsTrigger>
-            {!readOnly && (
+            {canViewOutsourcedTab && (
               <TabsTrigger 
                 value="outsourced" 
                 className="rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white"

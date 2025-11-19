@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/Inventory
 import { Badge } from "@/components/Inventory/components/ui/badge";
 import { Progress } from "@/components/Inventory/components/ui/progress";
 import { Building, User, ShoppingCart, Package, CheckCircle } from "lucide-react";
-import type { InvoiceLineItem } from "@/components/Inventory/types";
+import type { InvoiceLineItem, FulfillmentSplit } from "@/components/Inventory/types";
 
 interface FulfillmentSummaryProps {
   lineItems: InvoiceLineItem[];
@@ -10,27 +10,53 @@ interface FulfillmentSummaryProps {
 }
 
 export function FulfillmentSummary({ lineItems, totalAmount }: FulfillmentSummaryProps) {
-  const summary = lineItems.reduce((acc, item) => {
-    if (!item.fulfillmentSource) {
+  const activeAssignments = lineItems
+    .filter((item) => !item.skipFulfillment)
+    .flatMap((item) => {
+      if (item.fulfillmentSplits && item.fulfillmentSplits.length > 0) {
+        return item.fulfillmentSplits.map((split) => ({
+          ...split,
+          quantity: split.quantity || 0,
+        }));
+      }
+
+      const fallbackSplit: FulfillmentSplit = {
+        id: `${item.id}-fallback`,
+        parentItemId: item.id,
+        quantity: item.quantity,
+        fulfillmentSource: item.fulfillmentSource,
+        serialNumbers: item.serialNumbers,
+        assignedRep: item.assignedRep,
+        poId: item.poId,
+        assignedLocation: item.assignedLocation,
+        assignedSupplierName: item.assignedSupplierName,
+        assignedSupplierPhone: item.assignedSupplierPhone,
+      };
+
+      return [fallbackSplit];
+    });
+
+  const summary = activeAssignments.reduce((acc, split) => {
+    if (!split.fulfillmentSource) {
       acc.unassigned += 1;
       return acc;
     }
 
     const isComplete = (() => {
-      switch (item.fulfillmentSource) {
+      switch (split.fulfillmentSource) {
         case 'MAIN_HQ':
         case 'NYAMIRA':
-          return item.serialNumbers && item.serialNumbers.length >= item.quantity;
+          return !!split.serialNumbers && split.serialNumbers.length >= (split.quantity || 0);
         case 'FIELD_REP':
-          return item.assignedRep && item.serialNumbers && item.serialNumbers.length >= item.quantity;
+          return !!split.assignedRep && !!split.serialNumbers && split.serialNumbers.length >= (split.quantity || 0);
         case 'OUTSOURCE':
-          return !!item.poId;
+          return !!split.poId;
         default:
           return false;
       }
     })();
 
-    acc[item.fulfillmentSource] += 1;
+    acc[split.fulfillmentSource] += 1;
     if (isComplete) acc.complete += 1;
     
     return acc;
@@ -43,8 +69,8 @@ export function FulfillmentSummary({ lineItems, totalAmount }: FulfillmentSummar
     complete: 0
   });
 
-  const totalItems = lineItems.length;
-  const completionRate = totalItems > 0 ? (summary.complete / totalItems) * 100 : 0;
+  const totalAssignments = activeAssignments.length;
+  const completionRate = totalAssignments > 0 ? (summary.complete / totalAssignments) * 100 : 0;
 
   return (
     <Card>
@@ -57,8 +83,12 @@ export function FulfillmentSummary({ lineItems, totalAmount }: FulfillmentSummar
       <CardContent className="space-y-6">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="text-sm text-muted-foreground">Total Items</p>
-            <p className="text-2xl font-bold">{totalItems}</p>
+            <p className="text-sm text-muted-foreground">Invoice Items</p>
+            <p className="text-2xl font-bold">{lineItems.length}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Fulfillment Units</p>
+            <p className="text-2xl font-bold">{totalAssignments}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Total Value</p>
@@ -74,7 +104,7 @@ export function FulfillmentSummary({ lineItems, totalAmount }: FulfillmentSummar
           <Progress value={completionRate} className="h-2" />
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <CheckCircle className="h-3 w-3" />
-            {summary.complete} of {totalItems} items ready for dispatch
+            {summary.complete} of {Math.max(totalAssignments, 1)} fulfillment units ready for dispatch
           </div>
         </div>
 

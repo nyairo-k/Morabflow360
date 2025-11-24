@@ -101,7 +101,7 @@ export function OutsourcedItemsHub({
   };
 
   // FIX: Better data validation that handles the actual data structure
-  const validPurchaseOrders = purchaseOrders.filter(po => {
+const validPurchaseOrders = purchaseOrders.filter(po => {
     const isValid = po.poId && 
       po.relatedInvoiceId && 
       po.supplierName &&
@@ -172,6 +172,8 @@ export function OutsourcedItemsHub({
   const unpaidCount = validPurchaseOrders.filter(po => po.paymentStatusToSupplier === 'UNPAID').length;
   const partialCount = validPurchaseOrders.filter(po => po.paymentStatusToSupplier === 'PARTIAL').length;
   const paidCount = validPurchaseOrders.filter(po => po.paymentStatusToSupplier === 'PAID').length;
+  const canLogPayment = !["InventoryStaff", "Finance"].includes(currentUser.role);
+  const showActionsColumn = canLogPayment;
 
   return (
     <div className="space-y-6">
@@ -271,8 +273,10 @@ export function OutsourcedItemsHub({
                   <TableHead className="font-medium text-gray-700">Selling Price</TableHead>
                   <TableHead className="font-medium text-gray-700">Profit</TableHead>
                   <TableHead className="font-medium text-gray-700">Payment Status</TableHead>
-                  <TableHead className="font-medium text-gray-700">Outstanding</TableHead>
-                  <TableHead className="font-medium text-gray-700">Actions</TableHead>
+                      <TableHead className="font-medium text-gray-700">Outstanding</TableHead>
+                      {showActionsColumn && (
+                        <TableHead className="font-medium text-gray-700">Actions</TableHead>
+                      )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -360,34 +364,34 @@ export function OutsourcedItemsHub({
                         </p>
                       </TableCell>
                       
-                      <TableCell>
-                        <div className="flex gap-2">
-                          {/* Payment History Button */}
-                          {hasPayments && (
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => setHistoryPO(po)}
-                              className="text-blue-600 border-blue-200 hover:bg-blue-50"
-                            >
-                              <Calendar className="h-4 w-4 mr-1" />
-                              History
-                            </Button>
-                          )}
-                          
-                          {/* Log Payment Button (hidden for InventoryStaff) */}
-                          {currentUser.role !== 'InventoryStaff' && (
-                            <Button 
-                              onClick={() => setSelectedPO(po)}
-                              variant="outline"
-                              disabled={po.paymentStatusToSupplier === 'PAID'}
-                              className="bg-gray-100 border-gray-300 text-gray-900 hover:bg-gray-200"
-                            >
-                              Log Payment
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
+                      {showActionsColumn && (
+                        <TableCell>
+                          <div className="flex gap-2">
+                            {hasPayments && (
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => setHistoryPO(po)}
+                                className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                              >
+                                <Calendar className="h-4 w-4 mr-1" />
+                                History
+                              </Button>
+                            )}
+                            
+                            {canLogPayment && (
+                              <Button 
+                                onClick={() => setSelectedPO(po)}
+                                variant="outline"
+                                disabled={po.paymentStatusToSupplier === 'PAID'}
+                                className="bg-gray-100 border-gray-300 text-gray-900 hover:bg-gray-200"
+                              >
+                                Log Payment
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   );
                 })}
@@ -465,8 +469,8 @@ export function OutsourcedItemsHub({
         </DialogContent>
       </Dialog>
 
-      {/* Payment Dialog - hidden for InventoryStaff */}
-      {currentUser.role !== 'InventoryStaff' && selectedPO && (
+      {/* Payment Dialog - only shown when logging is allowed */}
+      {canLogPayment && selectedPO && (
         <PaymentDialog
           open={!!selectedPO}
           onClose={() => setSelectedPO(null)}

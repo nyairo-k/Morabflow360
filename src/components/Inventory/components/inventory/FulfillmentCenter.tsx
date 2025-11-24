@@ -44,7 +44,7 @@ export function FulfillmentCenter({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState(''); // Add search state
 
-  const canViewOutsourcedTab = !readOnly || currentUser.role === 'Disbursements';
+  const canViewOutsourcedTab = !readOnly || ["Disbursements", "Finance"].includes(currentUser.role);
   const tabGridClass = canViewOutsourcedTab ? 'grid-cols-4' : 'grid-cols-3';
 
   const invoicesWithFulfillmentStatus = useMemo(() => {

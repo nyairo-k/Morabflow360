@@ -277,9 +277,10 @@ export function PendingInvoices({ invoices, payments, onUploadSuccess, onConfirm
           <TableHeader>
              <TableRow>
               <TableHead className="w-[50px]"></TableHead>
-              <TableHead>Invoice ID</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Amount (Total vs. Paid)</TableHead> 
+            <TableHead>Invoice ID</TableHead>
+            <TableHead>Client</TableHead>
+            <TableHead>Date</TableHead>
+            <TableHead>Amount (Total vs. Paid)</TableHead> 
               <TableHead>Upload Status</TableHead>
               <TableHead>Payment Status</TableHead> 
               <TableHead>Confirmation</TableHead>
@@ -304,6 +305,9 @@ export function PendingInvoices({ invoices, payments, onUploadSuccess, onConfirm
                         {invoice.customerPhone}
                       </p>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    {invoice.submittedDate ? new Date(invoice.submittedDate).toLocaleDateString() : "-"}
                   </TableCell>
                   
                   <TableCell>
@@ -403,7 +407,7 @@ export function PendingInvoices({ invoices, payments, onUploadSuccess, onConfirm
                 </TableRow>
                 {expandedInvoiceId === invoice.id && (
                   <TableRow key={`${invoice.id}-details`}>
-                    <TableCell colSpan={8} className="p-0">
+                    <TableCell colSpan={9} className="p-0">
                       <div className="p-4 bg-muted">
                         <h4 className="font-semibold mb-2">Requested Items:</h4>
                         <div className="space-y-1 pl-4">
